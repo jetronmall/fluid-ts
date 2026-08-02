@@ -45,11 +45,11 @@ jobs:
         with:
           version: pnpm run version-packages
           publish: pnpm run release
-          commit: "chore: release"
-          title: "chore: release"
+          commit: 'chore: release'
+          title: 'chore: release'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
+          NPM_CONFIG_PROVENANCE: 'true'
           # Steady state uses OIDC Trusted Publishing — no token needed.
           #
           # BOOTSTRAP ONLY: a Trusted Publisher can't be configured until the package
