@@ -19,6 +19,8 @@ Run from the repo root:
 
 Target one package with `--filter`, e.g. `pnpm --filter @jetronticket/api build`.
 
+- `pnpm changeset` — record a version bump + changelog entry for a change (run this in any PR that changes a published package).
+
 There is **no test runner configured yet**. When adding tests, wire a `test` task into `turbo.json` and each package's `package.json` rather than running the runner ad hoc.
 
 ## Architecture
@@ -35,6 +37,8 @@ To add a package: create `packages/<name>/`, extend the two shared configs, add 
 ### Build & publishing
 
 Each package builds with **tsup** to dual ESM + CJS plus declaration files (`.d.ts` and `.d.cts`), wired through the `exports` map (`import`/`require` conditions). Packages set `"type": "module"`, `sideEffects: false`, and `publishConfig.access: public`.
+
+Releases use **Changesets**. Flow: a PR touching a published package includes a changeset (`pnpm changeset`); on merge to `main`, `.github/workflows/release.yml` runs the `changesets/action`, which either opens/updates a "Version Packages" PR (applying changesets, bumping versions, writing `CHANGELOG.md`) or, when that PR is merged, runs `pnpm run release` (`turbo run build && changeset publish`) to publish to npm with provenance. Requires the `NPM_TOKEN` repo secret. Private `tooling/*` packages are skipped automatically.
 
 ### TypeScript version constraint (important)
 

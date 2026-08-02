@@ -15,9 +15,13 @@
     "clean": "turbo run clean",
     "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\"",
-    "check": "turbo run lint typecheck build"
+    "check": "turbo run lint typecheck build",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "turbo run build && changeset publish"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.31.1",
     "prettier": "^3.9.6",
     "turbo": "^2.10.8"
   }
