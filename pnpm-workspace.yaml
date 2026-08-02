@@ -1,0 +1,10 @@
+packages:
+  - 'packages/*'
+  - 'tooling/*'
+allowBuilds:
+  esbuild: true
+
+# TypeScript 7 (the native compiler) is not yet supported by typescript-eslint
+# or tsup's declaration generator. Pin the whole workspace to the stable 5.x line.
+overrides:
+  typescript: ^5.9.3

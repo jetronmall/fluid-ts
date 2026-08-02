@@ -1,0 +1,24 @@
+{
+  "name": "ts-fluid",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Monorepo of JavaScript/TypeScript client libraries for Jetron Fluid (the Jetron Ticket headless API), published to npm.",
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "clean": "turbo run clean",
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\"",
+    "check": "turbo run lint typecheck build"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.6",
+    "turbo": "^2.10.8"
+  }
+}

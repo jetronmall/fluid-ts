@@ -1,0 +1,865 @@
+openapi: 3.1.0
+info:
+  title: Jetron Ticket — Headless API
+  version: "1.0.0"
+  description: |
+    Public REST API for external event hosts (partners) to power a white-label
+    ticket-buying flow. Browse the host's public events, reserve tickets for an
+    attendee, and create an order (checkout) on your own frontend.
+
+    ## Checkout flow
+    1. `POST /events/{slug}/reservations` prices the cart and holds the stock for
+       a limited window. It returns a `reservationToken` and a `quoteReference`.
+    2. Render your custom checkout page. Use `clientExpiresAt` to drive a
+       countdown.
+    3. `POST /events/{slug}/orders` completes checkout. Echo the `reservationToken`
+       as the `X-Device-ID` header and send the `quoteReference` back. Paid orders
+       return a `checkoutUrl` to redirect the attendee to; free orders are
+       confirmed immediately.
+    4. `DELETE /events/{slug}/reservations` releases a hold early (also echo the
+       token as `X-Device-ID`). Holds otherwise expire on their own.
+
+    Reserved-seating (seats.io) events are not supported over this API yet and
+    return `400`. Reservations and orders are not cached.
+
+    ## Authentication
+    Authenticated endpoints require your API key as a Bearer token:
+
+        Authorization: Bearer jt_public_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+    All events are automatically scoped to the event host that owns the API key.
+
+    ## Response envelope
+    Successful responses are wrapped as `{ "data": <payload>, "status": true }`.
+    Errors are returned as `{ "message": string, "status": <http code>,
+    "error_code": string }`.
+
+    ## Money
+    All monetary amounts are integers in the smallest currency unit
+    (kobo for NGN, pesewa for GHS, cents for ZAR).
+
+    ## Caching
+    `GET` event endpoints return an `ETag` and a `Cache-Control` header. Send the
+    `ETag` back as `If-None-Match` on your next request; if nothing changed the
+    API responds `304 Not Modified` with an empty body. Responses are host-scoped
+    (`private`) and short-lived; edits to an event invalidate its cache
+    immediately.
+
+servers:
+  - url: http://localhost:8003/api/v1
+    description: Local development
+  - url: https://{host}/api/v1
+    description: Deployment
+    variables:
+      host:
+        default: your-headless-host
+        description: The host serving the headless API
+
+tags:
+  - name: Events
+    description: Browse a host's public events
+  - name: Checkout
+    description: Reserve tickets and create orders for your attendees
+  - name: System
+    description: Health and service metadata
+
+paths:
+  /health:
+    get:
+      tags: [System]
+      summary: Health check
+      description: |
+        Readiness probe. Postgres and Redis are hard dependencies — the service
+        reports `503` if either is unreachable. Meilisearch, RabbitMQ, Neo4j and
+        MongoDB are reported for observability but do not affect the status code.
+      security: []
+      responses:
+        "200":
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthEnvelope"
+        "503":
+          description: A hard dependency (Postgres or Redis) is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthEnvelope"
+
+  /events:
+    get:
+      tags: [Events]
+      summary: List events
+      description: Lists the API key host's public events, newest first, with cursor pagination.
+      parameters:
+        - $ref: "#/components/parameters/Category"
+        - $ref: "#/components/parameters/Query"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: A page of events
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, data]
+                properties:
+                  status:
+                    type: boolean
+                    const: true
+                  data:
+                    $ref: "#/components/schemas/EventList"
+        "304":
+          $ref: "#/components/responses/NotModified"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /events/{slug}:
+    get:
+      tags: [Events]
+      summary: Get an event
+      description: Fetches a single public event by its slug, scoped to the API key host.
+      parameters:
+        - $ref: "#/components/parameters/EventSlug"
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: The event
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, data]
+                properties:
+                  status:
+                    type: boolean
+                    const: true
+                  data:
+                    $ref: "#/components/schemas/Event"
+        "304":
+          $ref: "#/components/responses/NotModified"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /events/{slug}/tickets:
+    get:
+      tags: [Events]
+      summary: List an event's tickets
+      description: Lists the purchasable ticket types for an event, ordered by their display position.
+      parameters:
+        - $ref: "#/components/parameters/EventSlug"
+      responses:
+        "200":
+          description: The event's ticket types
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, data]
+                properties:
+                  status:
+                    type: boolean
+                    const: true
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Ticket"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /events/{slug}/reservations:
+    post:
+      tags: [Checkout]
+      summary: Create or refresh a reservation
+      description: |
+        Prices the cart and holds the requested stock for the checkout window.
+        Returns a `reservationToken` and a `quoteReference`. Send the
+        `X-Device-ID` header to refresh/extend an existing reservation for the
+        same attendee; omit it to start a new one (a token is minted and
+        returned). Reserved-seating events return `400`.
+      parameters:
+        - $ref: "#/components/parameters/EventSlug"
+        - $ref: "#/components/parameters/DeviceIdOptional"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReservationRequest"
+      responses:
+        "200":
+          description: The reservation and its signed quote
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, data]
+                properties:
+                  status:
+                    type: boolean
+                    const: true
+                  data:
+                    $ref: "#/components/schemas/Reservation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Checkout]
+      summary: Release a reservation
+      description: |
+        Releases a held reservation, freeing the stock. Echo the
+        `reservationToken` as the `X-Device-ID` header. If omitted, the server
+        falls back to the reservation held for your client IP + event (the same
+        fallback used when reserving without a token). Returns `400` if neither
+        a token nor a matching anonymous reservation is found.
+      parameters:
+        - $ref: "#/components/parameters/EventSlug"
+        - $ref: "#/components/parameters/DeviceIdReleaseOptional"
+      responses:
+        "200":
+          description: The reservation was released
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, data]
+                properties:
+                  status:
+                    type: boolean
+                    const: true
+                  data:
+                    type: object
+                    required: [released]
+                    properties:
+                      released:
+                        type: boolean
+                        const: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /events/{slug}/orders:
+    post:
+      tags: [Checkout]
+      summary: Create an order (checkout)
+      description: |
+        Completes checkout for a held reservation. Echo the `reservationToken`
+        as the `X-Device-ID` header and send the `quoteReference` from the
+        reservation response. Free (zero-total) orders are
+        fulfilled immediately and return `status: confirmed`; paid orders return
+        `status: pending_payment` and a `checkoutUrl` to redirect the attendee
+        to. After payment the gateway redirects to your `callbackUrl` with a
+        `reference` query parameter. A duplicate order for the same reservation
+        returns `409`.
+      parameters:
+        - $ref: "#/components/parameters/EventSlug"
+        - $ref: "#/components/parameters/DeviceIdRequired"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrderRequest"
+      responses:
+        "200":
+          description: The order was created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, data]
+                properties:
+                  status:
+                    type: boolean
+                    const: true
+                  data:
+                    $ref: "#/components/schemas/Order"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: http
+      scheme: bearer
+      description: Your public API key (e.g. `jt_public_...`) passed as a Bearer token.
+
+  parameters:
+    EventSlug:
+      name: slug
+      in: path
+      required: true
+      description: The event's URL slug.
+      schema:
+        type: string
+    Category:
+      name: category
+      in: query
+      required: false
+      description: Filter events by category slug.
+      schema:
+        type: string
+    Query:
+      name: q
+      in: query
+      required: false
+      description: Full-text search query.
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Page size (1–100).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque pagination cursor returned as `nextCursor`.
+      schema:
+        type: string
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      description: An `ETag` from a previous response. Returns `304` if unchanged.
+      schema:
+        type: string
+    DeviceIdOptional:
+      name: X-Device-ID
+      in: header
+      required: false
+      description: |
+        The `reservationToken` (a UUID) identifying the attendee's cart. Strongly
+        recommended: generate one stable UUID per attendee (persist it in the
+        browser) and send it on every call so each attendee maps to exactly one
+        reservation. Send it to refresh that reservation.
+
+        If omitted, the server reuses a single token per client IP + event for the
+        reservation window, so repeated requests don't each hold fresh stock — but
+        distinct attendees behind the same IP would then share a reservation, so
+        supplying your own per-attendee token is preferred.
+      schema:
+        type: string
+        format: uuid
+    DeviceIdRequired:
+      name: X-Device-ID
+      in: header
+      required: true
+      description: |
+        The `reservationToken` returned by `POST /events/{slug}/reservations`,
+        echoed verbatim. Identifies the attendee's held reservation.
+      schema:
+        type: string
+        format: uuid
+    DeviceIdReleaseOptional:
+      name: X-Device-ID
+      in: header
+      required: false
+      description: |
+        The `reservationToken` identifying the reservation to release. If omitted,
+        the server releases the reservation held for your client IP + event, if
+        one exists.
+      schema:
+        type: string
+        format: uuid
+
+  headers:
+    ETag:
+      description: Opaque validator for the response body. Echo it back as `If-None-Match`.
+      schema:
+        type: string
+    CacheControl:
+      description: Caching policy for the response.
+      schema:
+        type: string
+        example: private, max-age=60, stale-while-revalidate=120
+
+  responses:
+    NotModified:
+      description: The resource has not changed since the supplied ETag (no body).
+    BadRequest:
+      description: |
+        Invalid request — malformed body, failed validation, a missing
+        reservation token, or a reserved-seating event (not supported).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: The requested resource does not exist for this host
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: An order for this reservation is already being processed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      required: [message, status, error_code]
+      properties:
+        message:
+          type: string
+          example: Missing or invalid API key
+        status:
+          type: integer
+          description: The HTTP status code.
+          example: 401
+        error_code:
+          type: string
+          description: A stable machine-readable error identifier.
+          example: unauthorized
+
+    HealthEnvelope:
+      type: object
+      required: [status, data]
+      properties:
+        status:
+          type: boolean
+          description: Whether the HTTP status code was < 400.
+        data:
+          type: object
+          required: [status, message, data]
+          properties:
+            status:
+              type: boolean
+              description: Overall readiness (Postgres AND Redis reachable).
+            message:
+              type: string
+              example: OK
+            data:
+              $ref: "#/components/schemas/HealthChecks"
+
+    HealthChecks:
+      type: object
+      required: [postgres, redis, meilisearch, rabbitmq, neo4j, mongodb]
+      description: |
+        Per-dependency health. For the headless API `postgres` and `redis`
+        determine the status code; `meilisearch`, `rabbitmq`, `neo4j` and
+        `mongodb` are informational.
+      properties:
+        postgres:
+          type: boolean
+        redis:
+          type: boolean
+        meilisearch:
+          type: boolean
+        rabbitmq:
+          type: boolean
+        neo4j:
+          type: boolean
+        mongodb:
+          type: boolean
+
+    EventCategory:
+      type: object
+      required: [name, slug]
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+
+    Event:
+      type: object
+      required:
+        - id
+        - name
+        - slug
+        - posterImageURL
+        - description
+        - previewDescription
+        - date
+        - closingDate
+        - timezone
+        - status
+        - isComingSoon
+        - hideLocation
+        - createdAt
+        - cheapestTicketPrice
+        - formattedCheapestPrice
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        posterImageURL:
+          type: string
+        posterAspectRatio:
+          type: number
+          description: Width/height of the poster image. Absent when unknown.
+        category:
+          oneOf:
+            - $ref: "#/components/schemas/EventCategory"
+            - type: "null"
+        cheapestTicketPrice:
+          type: integer
+          description: Lowest ticket price (after commission) in the smallest currency unit. 0 when the event has no purchasable tickets.
+        formattedCheapestPrice:
+          type: string
+          description: Human-readable, country-formatted cheapest price. "Free" when 0.
+        description:
+          type: string
+        previewDescription:
+          type: string
+          description: Plain-text preview derived from the markdown description.
+        date:
+          type: string
+          format: date-time
+        closingDate:
+          type: string
+          format: date-time
+        timezone:
+          type: string
+        status:
+          $ref: "#/components/schemas/EventStatus"
+        isComingSoon:
+          type: boolean
+        instagram:
+          type: string
+        website:
+          type: string
+        xAccount:
+          type: string
+        country:
+          $ref: "#/components/schemas/Country"
+        state:
+          type: string
+        lga:
+          type: string
+        street:
+          type: string
+        directions:
+          type: string
+        lng:
+          type: number
+        lat:
+          type: number
+        hideLocation:
+          type: boolean
+        hostMessage:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    EventList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Event"
+        nextCursor:
+          type: string
+          description: Pass as `cursor` to fetch the next page. Absent on the last page.
+
+    SubTicket:
+      type: object
+      required: [id, name]
+      description: A ticket bundled inside a combo ticket.
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+
+    Ticket:
+      type: object
+      required:
+        - id
+        - name
+        - slug
+        - price
+        - formattedPrice
+        - fees
+        - formattedFees
+        - maximumPurchasableTicketCount
+        - quantityLeft
+        - orderCount
+        - status
+        - isGroup
+        - isCombo
+        - isRsvp
+        - position
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+        imageURL:
+          type: string
+        price:
+          type: integer
+          description: Price the buyer pays (after commission), in the smallest currency unit.
+        formattedPrice:
+          type: string
+          description: Human-readable, country-formatted price ("FREE" when 0).
+        fees:
+          type: integer
+          description: Platform fees included for this ticket, in the smallest currency unit.
+        formattedFees:
+          type: string
+          description: Human-readable, country-formatted fees.
+        maximumPurchasableTicketCount:
+          type: integer
+          description: Maximum quantity purchasable per order.
+        quantityLeft:
+          type: integer
+          description: |
+            Tickets available to buy right now, after subtracting tickets already
+            sold and those currently held in other attendees' carts/reservations.
+        orderCount:
+          type: integer
+          description: How many admissions one ticket grants (group size).
+        deadline:
+          type: string
+          format: date-time
+          description: When sales for this ticket close.
+        date:
+          type: string
+          format: date-time
+        status:
+          $ref: "#/components/schemas/TicketStatus"
+        isGroup:
+          type: boolean
+          description: Whether one ticket admits multiple people (orderCount > 1).
+        isCombo:
+          type: boolean
+          description: Whether this ticket bundles other tickets (see subTickets).
+        isRsvp:
+          type: boolean
+          description: Whether this is a free RSVP/registration ticket.
+        subTickets:
+          type: array
+          description: For combo tickets, the tickets bundled inside.
+          items:
+            $ref: "#/components/schemas/SubTicket"
+        position:
+          type: integer
+        emailDomainRestriction:
+          type: string
+          description: If set, only buyers with an email on this domain may purchase.
+
+    TicketStatus:
+      type: string
+      enum:
+        - AVAILABLE
+        - SOLD_OUT
+        - COMING_SOON
+        - CLOSED
+        - DEADLINE_EXCEEDED
+        - SALE_NOT_STARTED
+        - SALE_ENDED
+
+    EventStatus:
+      type: string
+      enum: [LIVE, COMING_SOON, CLOSED, SOLD_OUT, ACTIVE]
+
+    Country:
+      type: string
+      enum: [NIGERIA, GHANA, SOUTH_AFRICA]
+
+    ReservationItemRequest:
+      type: object
+      required: [sku, quantity]
+      properties:
+        sku:
+          type: string
+          format: uuid
+          description: The ticket type ID (from the tickets endpoint).
+        quantity:
+          type: integer
+          minimum: 1
+
+    CreateReservationRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ReservationItemRequest"
+        promoCode:
+          type: string
+          description: Optional promo code to apply to the cart.
+
+    ReservationItemView:
+      type: object
+      required: [sku, quantity, price, fee]
+      properties:
+        sku:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+        price:
+          type: integer
+          description: Per-ticket price (after commission), in the smallest currency unit.
+        fee:
+          type: integer
+          description: Per-ticket platform fee, in the smallest currency unit.
+
+    Reservation:
+      type: object
+      required:
+        - reservationToken
+        - quoteReference
+        - total
+        - totalFees
+        - items
+        - clientExpiresAt
+      properties:
+        reservationToken:
+          type: string
+          format: uuid
+          description: Echo as the `X-Device-ID` header on order and release calls.
+        quoteReference:
+          type: string
+          description: |
+            Opaque handle to the priced, server-held quote. Send it back as
+            `quoteReference` when creating an order.
+        total:
+          type: integer
+          description: Cart total (after commission) in the smallest currency unit.
+        totalFees:
+          type: integer
+          description: Total platform fees included in the total.
+        discount:
+          type: integer
+          description: Discount applied by a promo code, if any.
+        promoCode:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReservationItemView"
+        clientExpiresAt:
+          type: string
+          format: date-time
+          description: Client-facing deadline to drive your checkout countdown.
+
+    CreateOrderRequest:
+      type: object
+      required: [quoteReference, email, firstName, lastName, callbackUrl]
+      properties:
+        quoteReference:
+          type: string
+          description: The `quoteReference` returned by the reservation response.
+        email:
+          type: string
+          format: email
+          description: The attendee's email; tickets are issued to this address.
+        firstName:
+          type: string
+        lastName:
+          type: string
+        phone:
+          type: string
+        callbackUrl:
+          type: string
+          format: uri
+          description: |
+            Where the attendee is redirected after payment. The API appends a
+            `reference` query parameter.
+        acceptPromotionalContent:
+          type: boolean
+          description: Whether the attendee opted into promotional content.
+        metadata:
+          type: object
+          additionalProperties: true
+          description: |
+            Optional JSON object (max 4096 bytes) echoed back verbatim in the
+            `TICKET_PURCHASED` webhook's `data.metadata` on payment success — e.g.
+            custom checkout-form fields. Must be a JSON object, not a scalar or
+            array.
+
+    Order:
+      type: object
+      required: [status, reference, checkoutUrl, total]
+      properties:
+        status:
+          type: string
+          enum: [confirmed, pending_payment]
+          description: |
+            `confirmed` for free orders (fulfilled immediately); `pending_payment`
+            for paid orders (redirect the attendee to `checkoutUrl`).
+        reference:
+          type: string
+          description: |
+            The order reference. Present for free orders; for paid orders the
+            reference is delivered on the `callbackUrl` after payment.
+        checkoutUrl:
+          type: string
+          description: |
+            For paid orders, the gateway URL to redirect the attendee to. For free
+            orders, your `callbackUrl` with the `reference` appended.
+        total:
+          type: integer
+        discount:
+          type: integer
+        promoCode:
+          type: string
+        clientExpiresAt:
+          type: string
+          format: date-time
+
+security:
+  - ApiKeyAuth: []

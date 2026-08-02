@@ -1,0 +1,22 @@
+{
+  "name": "@jetronticket/eslint-config",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "peerDependencies": {
+    "eslint": ">=9"
+  },
+  "dependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.8.0",
+    "typescript-eslint": "^8.65.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
