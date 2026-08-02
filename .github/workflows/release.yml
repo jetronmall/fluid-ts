@@ -12,6 +12,8 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+    # Must match the environment configured on the npm Trusted Publisher.
+    environment: production
     permissions:
       contents: write # push the version-bump commit / create GitHub releases
       pull-requests: write # open the "Version Packages" PR
