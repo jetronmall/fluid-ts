@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+# Only one release run at a time.
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the version-bump commit / create GitHub releases
+      pull-requests: write # open the "Version Packages" PR
+      id-token: write # npm Trusted Publishing (OIDC) + provenance — no token needed
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      # Trusted Publishing (OIDC) needs npm >= 11.5.1; Node 22 still ships npm 10.
+      - name: Update npm for OIDC support
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify
+        run: pnpm run check
+
+      - name: Create Release PR or publish to npm
+        uses: changesets/action@v1
+        with:
+          version: pnpm run version-packages
+          publish: pnpm run release
+          commit: "chore: release"
+          title: "chore: release"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+          # Steady state uses OIDC Trusted Publishing — no token needed.
+          #
+          # BOOTSTRAP ONLY: a Trusted Publisher can't be configured until the package
+          # exists on npm, so the very first publish needs a real credential. Uncomment
+          # the line below and set the NPM_TOKEN secret to a granular token (creating one
+          # requires enabling npm 2FA). After the first publish, configure the Trusted
+          # Publisher on npmjs.com, then re-comment this line and delete the secret.
+          # NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
