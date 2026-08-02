@@ -18,7 +18,7 @@
     "check": "turbo run lint typecheck build",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "turbo run build && changeset publish"
+    "release:api": "turbo run build && pnpm --filter @jetronticket/api publish --no-git-checks --access public"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",
