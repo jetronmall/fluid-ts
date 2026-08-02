@@ -186,6 +186,9 @@ function buildQuery(query?: Query): string {
  */
 export function createClient(options: JetronFluidClientOptions): JetronFluidClient {
   const { apiKey, headers: defaultHeaders } = options
+  if (!apiKey) {
+    throw new Error('createClient requires an `apiKey`.')
+  }
   const baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '')
 
   const fetchImpl = options.fetch ?? globalThis.fetch
