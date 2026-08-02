@@ -1,5 +1,11 @@
 # @jetronticket/api
 
+## 0.1.2
+
+### Patch Changes
+
+- 0a8ddf3: License the SDK under MIT and include a LICENSE file in the published package.
+
 ## 0.1.1
 
 ### Patch Changes
