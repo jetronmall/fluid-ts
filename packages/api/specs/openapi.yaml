@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Jetron Ticket — Headless API
-  version: "1.0.0"
+  version: '1.0.0'
   description: |
     Public REST API for external event hosts (partners) to power a white-label
     ticket-buying flow. Browse the host's public events, reserve tickets for an
@@ -74,18 +74,18 @@ paths:
         MongoDB are reported for observability but do not affect the status code.
       security: []
       responses:
-        "200":
+        '200':
           description: Service is ready
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HealthEnvelope"
-        "503":
+                $ref: '#/components/schemas/HealthEnvelope'
+        '503':
           description: A hard dependency (Postgres or Redis) is unavailable
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HealthEnvelope"
+                $ref: '#/components/schemas/HealthEnvelope'
 
   /events:
     get:
@@ -93,19 +93,19 @@ paths:
       summary: List events
       description: Lists the API key host's public events, newest first, with cursor pagination.
       parameters:
-        - $ref: "#/components/parameters/Category"
-        - $ref: "#/components/parameters/Query"
-        - $ref: "#/components/parameters/Limit"
-        - $ref: "#/components/parameters/Cursor"
-        - $ref: "#/components/parameters/IfNoneMatch"
+        - $ref: '#/components/parameters/Category'
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/IfNoneMatch'
       responses:
-        "200":
+        '200':
           description: A page of events
           headers:
             ETag:
-              $ref: "#/components/headers/ETag"
+              $ref: '#/components/headers/ETag'
             Cache-Control:
-              $ref: "#/components/headers/CacheControl"
+              $ref: '#/components/headers/CacheControl'
           content:
             application/json:
               schema:
@@ -116,11 +116,11 @@ paths:
                     type: boolean
                     const: true
                   data:
-                    $ref: "#/components/schemas/EventList"
-        "304":
-          $ref: "#/components/responses/NotModified"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
+                    $ref: '#/components/schemas/EventList'
+        '304':
+          $ref: '#/components/responses/NotModified'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /events/{slug}:
     get:
@@ -128,16 +128,16 @@ paths:
       summary: Get an event
       description: Fetches a single public event by its slug, scoped to the API key host.
       parameters:
-        - $ref: "#/components/parameters/EventSlug"
-        - $ref: "#/components/parameters/IfNoneMatch"
+        - $ref: '#/components/parameters/EventSlug'
+        - $ref: '#/components/parameters/IfNoneMatch'
       responses:
-        "200":
+        '200':
           description: The event
           headers:
             ETag:
-              $ref: "#/components/headers/ETag"
+              $ref: '#/components/headers/ETag'
             Cache-Control:
-              $ref: "#/components/headers/CacheControl"
+              $ref: '#/components/headers/CacheControl'
           content:
             application/json:
               schema:
@@ -148,13 +148,13 @@ paths:
                     type: boolean
                     const: true
                   data:
-                    $ref: "#/components/schemas/Event"
-        "304":
-          $ref: "#/components/responses/NotModified"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
+                    $ref: '#/components/schemas/Event'
+        '304':
+          $ref: '#/components/responses/NotModified'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /events/{slug}/tickets:
     get:
@@ -162,9 +162,9 @@ paths:
       summary: List an event's tickets
       description: Lists the purchasable ticket types for an event, ordered by their display position.
       parameters:
-        - $ref: "#/components/parameters/EventSlug"
+        - $ref: '#/components/parameters/EventSlug'
       responses:
-        "200":
+        '200':
           description: The event's ticket types
           content:
             application/json:
@@ -178,11 +178,11 @@ paths:
                   data:
                     type: array
                     items:
-                      $ref: "#/components/schemas/Ticket"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
+                      $ref: '#/components/schemas/Ticket'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /events/{slug}/reservations:
     post:
@@ -195,16 +195,16 @@ paths:
         same attendee; omit it to start a new one (a token is minted and
         returned). Reserved-seating events return `400`.
       parameters:
-        - $ref: "#/components/parameters/EventSlug"
-        - $ref: "#/components/parameters/DeviceIdOptional"
+        - $ref: '#/components/parameters/EventSlug'
+        - $ref: '#/components/parameters/DeviceIdOptional'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateReservationRequest"
+              $ref: '#/components/schemas/CreateReservationRequest'
       responses:
-        "200":
+        '200':
           description: The reservation and its signed quote
           content:
             application/json:
@@ -216,13 +216,13 @@ paths:
                     type: boolean
                     const: true
                   data:
-                    $ref: "#/components/schemas/Reservation"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
+                    $ref: '#/components/schemas/Reservation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
     delete:
       tags: [Checkout]
       summary: Release a reservation
@@ -233,10 +233,10 @@ paths:
         fallback used when reserving without a token). Returns `400` if neither
         a token nor a matching anonymous reservation is found.
       parameters:
-        - $ref: "#/components/parameters/EventSlug"
-        - $ref: "#/components/parameters/DeviceIdReleaseOptional"
+        - $ref: '#/components/parameters/EventSlug'
+        - $ref: '#/components/parameters/DeviceIdReleaseOptional'
       responses:
-        "200":
+        '200':
           description: The reservation was released
           content:
             application/json:
@@ -254,12 +254,12 @@ paths:
                       released:
                         type: boolean
                         const: true
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /events/{slug}/orders:
     post:
@@ -275,16 +275,16 @@ paths:
         `reference` query parameter. A duplicate order for the same reservation
         returns `409`.
       parameters:
-        - $ref: "#/components/parameters/EventSlug"
-        - $ref: "#/components/parameters/DeviceIdRequired"
+        - $ref: '#/components/parameters/EventSlug'
+        - $ref: '#/components/parameters/DeviceIdRequired'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateOrderRequest"
+              $ref: '#/components/schemas/CreateOrderRequest'
       responses:
-        "200":
+        '200':
           description: The order was created
           content:
             application/json:
@@ -296,15 +296,15 @@ paths:
                     type: boolean
                     const: true
                   data:
-                    $ref: "#/components/schemas/Order"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
+                    $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
 
 components:
   securitySchemes:
@@ -419,25 +419,25 @@ components:
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/Error"
+            $ref: '#/components/schemas/Error'
     Unauthorized:
       description: Missing or invalid API key
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/Error"
+            $ref: '#/components/schemas/Error'
     NotFound:
       description: The requested resource does not exist for this host
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/Error"
+            $ref: '#/components/schemas/Error'
     Conflict:
       description: An order for this reservation is already being processed.
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/Error"
+            $ref: '#/components/schemas/Error'
 
   schemas:
     Error:
@@ -474,7 +474,7 @@ components:
               type: string
               example: OK
             data:
-              $ref: "#/components/schemas/HealthChecks"
+              $ref: '#/components/schemas/HealthChecks'
 
     HealthChecks:
       type: object
@@ -539,8 +539,8 @@ components:
           description: Width/height of the poster image. Absent when unknown.
         category:
           oneOf:
-            - $ref: "#/components/schemas/EventCategory"
-            - type: "null"
+            - $ref: '#/components/schemas/EventCategory'
+            - type: 'null'
         cheapestTicketPrice:
           type: integer
           description: Lowest ticket price (after commission) in the smallest currency unit. 0 when the event has no purchasable tickets.
@@ -561,7 +561,7 @@ components:
         timezone:
           type: string
         status:
-          $ref: "#/components/schemas/EventStatus"
+          $ref: '#/components/schemas/EventStatus'
         isComingSoon:
           type: boolean
         instagram:
@@ -571,7 +571,7 @@ components:
         xAccount:
           type: string
         country:
-          $ref: "#/components/schemas/Country"
+          $ref: '#/components/schemas/Country'
         state:
           type: string
         lga:
@@ -599,7 +599,7 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/Event"
+            $ref: '#/components/schemas/Event'
         nextCursor:
           type: string
           description: Pass as `cursor` to fetch the next page. Absent on the last page.
@@ -676,7 +676,7 @@ components:
           type: string
           format: date-time
         status:
-          $ref: "#/components/schemas/TicketStatus"
+          $ref: '#/components/schemas/TicketStatus'
         isGroup:
           type: boolean
           description: Whether one ticket admits multiple people (orderCount > 1).
@@ -690,7 +690,7 @@ components:
           type: array
           description: For combo tickets, the tickets bundled inside.
           items:
-            $ref: "#/components/schemas/SubTicket"
+            $ref: '#/components/schemas/SubTicket'
         position:
           type: integer
         emailDomainRestriction:
@@ -736,7 +736,7 @@ components:
           type: array
           minItems: 1
           items:
-            $ref: "#/components/schemas/ReservationItemRequest"
+            $ref: '#/components/schemas/ReservationItemRequest'
         promoCode:
           type: string
           description: Optional promo code to apply to the cart.
@@ -790,7 +790,7 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/ReservationItemView"
+            $ref: '#/components/schemas/ReservationItemView'
         clientExpiresAt:
           type: string
           format: date-time
