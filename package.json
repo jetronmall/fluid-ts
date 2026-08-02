@@ -2,6 +2,7 @@
   "name": "ts-fluid",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "description": "Monorepo of JavaScript/TypeScript client libraries for Jetron Fluid (the Jetron Ticket headless API), published to npm.",
   "packageManager": "pnpm@11.9.0",
   "engines": {

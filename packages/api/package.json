@@ -2,7 +2,7 @@
   "name": "@jetronticket/api",
   "version": "0.1.1",
   "description": "TypeScript client for Jetron Fluid, the Jetron Ticket headless API.",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jetronmall/fluid-ts.git",
