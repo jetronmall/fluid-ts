@@ -1,5 +1,11 @@
 # @jetronticket/api
 
+## 0.2.0
+
+### Minor Changes
+
+- 4653826: Introduced ability to fetch headliners and event gallery
+
 ## 0.1.2
 
 ### Patch Changes
