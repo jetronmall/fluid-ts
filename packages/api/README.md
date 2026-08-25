@@ -42,7 +42,7 @@ const { data: order } = await client.createOrder(
 )
 
 if (order.status === 'pending_payment') {
-  window.location.href = order.checkoutUrl // redirect to the payment gateway
+  window.location.href = order.checkoutUrl // open the payment link
 }
 ```
 
@@ -66,6 +66,7 @@ interface ApiResult<T> {
 | `health()`                                | `GET /health` (unauthenticated)      |
 | `listEvents(params?)`                     | `GET /events`                        |
 | `getEvent(slug, options?)`                | `GET /events/{slug}`                 |
+| `getEventGallery(slug, options?)`         | `GET /events/{slug}/gallery`         |
 | `listTickets(slug, options?)`             | `GET /events/{slug}/tickets`         |
 | `createReservation(slug, body, options?)` | `POST /events/{slug}/reservations`   |
 | `releaseReservation(slug, options?)`      | `DELETE /events/{slug}/reservations` |

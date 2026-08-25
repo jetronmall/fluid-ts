@@ -3,6 +3,7 @@ import type {
   CreateOrderRequest,
   CreateReservationRequest,
   Event,
+  EventGallery,
   EventList,
   Health,
   Order,
@@ -144,6 +145,12 @@ export interface JetronFluidClient {
   /** `GET /events/{slug}` — fetch a single public event. */
   getEvent(slug: string, options?: ConditionalRequestOptions): Promise<ApiResult<Event | null>>
 
+  /** `GET /events/{slug}/gallery` — list an event's gallery images. */
+  getEventGallery(
+    slug: string,
+    options?: ConditionalRequestOptions,
+  ): Promise<ApiResult<EventGallery | null>>
+
   /** `GET /events/{slug}/tickets` — list an event's purchasable ticket types. */
   listTickets(slug: string, options?: RequestOptions): Promise<ApiResult<Ticket[]>>
 
@@ -260,6 +267,14 @@ export function createClient(options: JetronFluidClientOptions): JetronFluidClie
     getEvent: (slug, opts = {}) => {
       const { ifNoneMatch, ...rest } = opts
       return request<Event | null>('GET', `/events/${encode(slug)}`, { ifNoneMatch, ...rest })
+    },
+
+    getEventGallery: (slug, opts = {}) => {
+      const { ifNoneMatch, ...rest } = opts
+      return request<EventGallery | null>('GET', `/events/${encode(slug)}/gallery`, {
+        ifNoneMatch,
+        ...rest,
+      })
     },
 
     listTickets: (slug, opts = {}) =>
