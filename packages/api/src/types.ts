@@ -25,6 +25,8 @@ export type TicketStatus =
 
 export type OrderStatus = 'confirmed' | 'pending_payment'
 
+export type EventArtistPlatform = 'SPOTIFY' | 'DEEZER'
+
 // ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
@@ -34,7 +36,8 @@ export interface EventCategory {
   slug: string
 }
 
-export interface Event {
+/** The event fields returned by list endpoints. */
+export interface EventSummary {
   id: string
   name: string
   slug: string
@@ -69,8 +72,47 @@ export interface Event {
   createdAt: string
 }
 
+/** A public artist profile linked to an event headliner. */
+export interface EventArtistProfile {
+  id: string
+  artistPlatformId: string
+  platform: EventArtistPlatform
+  name: string
+  slug?: string
+  imageURL?: string
+  description?: string
+  bannerURL?: string
+}
+
+/** A guest or performer featured on an event page. */
+export interface EventHeadliner {
+  id: string
+  name: string
+  role?: string
+  imageURL?: string
+  /** Whether this is the event's default headliner. */
+  isMainArtist: boolean
+  artist?: EventArtistProfile
+}
+
+/** The full event detail returned by `GET /events/{slug}`. */
+export interface Event extends EventSummary {
+  /** Public guests and performers featured on the event page. */
+  headliners: EventHeadliner[]
+}
+
+export interface EventGalleryImage {
+  id: string
+  imageURL: string
+  altText?: string
+}
+
+export interface EventGallery {
+  items: EventGalleryImage[]
+}
+
 export interface EventList {
-  items: Event[]
+  items: EventSummary[]
   /** Pass as `cursor` to fetch the next page. Absent on the last page. */
   nextCursor?: string
 }
@@ -133,7 +175,7 @@ export interface ReservationItemRequest {
 
 export interface CreateReservationRequest {
   items: ReservationItemRequest[]
-  /** Optional promo code to apply to the cart. */
+  /** Optional event promo code. Global promo codes are not supported. */
   promoCode?: string
 }
 
@@ -192,7 +234,7 @@ export interface Order {
   status: OrderStatus
   /** The order reference. Present for free orders; paid orders receive it on callback. */
   reference: string
-  /** Gateway URL for paid orders; your callbackUrl (with reference) for free orders. */
+  /** Payment link for paid orders; your callbackUrl (with reference) for free orders. */
   checkoutUrl: string
   total: number
   discount?: number

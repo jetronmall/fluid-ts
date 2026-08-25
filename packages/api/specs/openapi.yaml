@@ -14,8 +14,7 @@ info:
        countdown.
     3. `POST /events/{slug}/orders` completes checkout. Echo the `reservationToken`
        as the `X-Device-ID` header and send the `quoteReference` back. Paid orders
-       return a `checkoutUrl` to redirect the attendee to; free orders are
-       confirmed immediately.
+       return the payment link in `checkoutUrl`; free orders are confirmed immediately.
     4. `DELETE /events/{slug}/reservations` releases a hold early (also echo the
        token as `X-Device-ID`). Holds otherwise expire on their own.
 
@@ -156,6 +155,40 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /events/{slug}/gallery:
+    get:
+      tags: [Events]
+      summary: List an event's gallery images
+      description: Lists gallery images for a public event in stable creation order, scoped to the API key host.
+      parameters:
+        - $ref: '#/components/parameters/EventSlug'
+        - $ref: '#/components/parameters/IfNoneMatch'
+      responses:
+        '200':
+          description: The event's gallery images
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, data]
+                properties:
+                  status:
+                    type: boolean
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/EventGallery'
+        '304':
+          $ref: '#/components/responses/NotModified'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /events/{slug}/tickets:
     get:
       tags: [Events]
@@ -193,7 +226,9 @@ paths:
         Returns a `reservationToken` and a `quoteReference`. Send the
         `X-Device-ID` header to refresh/extend an existing reservation for the
         same attendee; omit it to start a new one (a token is minted and
-        returned). Reserved-seating events return `400`.
+        returned). A promo code must belong to the event in `{slug}`;
+        global promo codes are not supported. Reserved-seating events
+        return `400`.
       parameters:
         - $ref: '#/components/parameters/EventSlug'
         - $ref: '#/components/parameters/DeviceIdOptional'
@@ -270,10 +305,9 @@ paths:
         as the `X-Device-ID` header and send the `quoteReference` from the
         reservation response. Free (zero-total) orders are
         fulfilled immediately and return `status: confirmed`; paid orders return
-        `status: pending_payment` and a `checkoutUrl` to redirect the attendee
-        to. After payment the gateway redirects to your `callbackUrl` with a
-        `reference` query parameter. A duplicate order for the same reservation
-        returns `409`.
+        `status: pending_payment` and a payment link in `checkoutUrl`. After
+        payment the attendee is redirected to your `callbackUrl` with a `reference`
+        query parameter. A duplicate order for the same reservation returns `409`.
       parameters:
         - $ref: '#/components/parameters/EventSlug'
         - $ref: '#/components/parameters/DeviceIdRequired'
@@ -397,7 +431,6 @@ components:
       schema:
         type: string
         format: uuid
-
   headers:
     ETag:
       description: Opaque validator for the response body. Echo it back as `If-None-Match`.
@@ -438,7 +471,6 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
-
   schemas:
     Error:
       type: object
@@ -506,7 +538,7 @@ components:
         slug:
           type: string
 
-    Event:
+    EventSummary:
       type: object
       required:
         - id
@@ -592,6 +624,81 @@ components:
           type: string
           format: date-time
 
+    Event:
+      allOf:
+        - $ref: '#/components/schemas/EventSummary'
+        - type: object
+          required: [headliners]
+          properties:
+            headliners:
+              type: array
+              description: Public guests and performers featured on the event page.
+              items:
+                $ref: '#/components/schemas/EventHeadliner'
+
+    EventHeadliner:
+      type: object
+      required: [id, name, isMainArtist]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        role:
+          type: string
+        imageURL:
+          type: string
+        isMainArtist:
+          type: boolean
+          description: Whether this is the event's default headliner.
+        artist:
+          $ref: '#/components/schemas/EventArtistProfile'
+
+    EventArtistProfile:
+      type: object
+      required: [id, artistPlatformId, platform, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        artistPlatformId:
+          type: string
+        platform:
+          type: string
+          enum: [SPOTIFY, DEEZER]
+        name:
+          type: string
+        slug:
+          type: string
+        imageURL:
+          type: string
+        description:
+          type: string
+        bannerURL:
+          type: string
+    EventGalleryImage:
+      type: object
+      required: [id, imageURL]
+      properties:
+        id:
+          type: string
+          format: uuid
+        imageURL:
+          type: string
+          format: uri
+        altText:
+          type: string
+
+    EventGallery:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventGalleryImage'
+
     EventList:
       type: object
       required: [items]
@@ -599,7 +706,7 @@ components:
         items:
           type: array
           items:
-            $ref: '#/components/schemas/Event'
+            $ref: '#/components/schemas/EventSummary'
         nextCursor:
           type: string
           description: Pass as `cursor` to fetch the next page. Absent on the last page.
@@ -739,7 +846,7 @@ components:
             $ref: '#/components/schemas/ReservationItemRequest'
         promoCode:
           type: string
-          description: Optional promo code to apply to the cart.
+          description: Optional promo code to apply to the cart. It must belong to this event; global promo codes are not supported.
 
     ReservationItemView:
       type: object
@@ -849,8 +956,8 @@ components:
         checkoutUrl:
           type: string
           description: |
-            For paid orders, the gateway URL to redirect the attendee to. For free
-            orders, your `callbackUrl` with the `reference` appended.
+            For paid orders, the payment link the attendee uses to complete payment.
+            For free orders, your `callbackUrl` with the `reference` appended.
         total:
           type: integer
         discount:
