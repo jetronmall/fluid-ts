@@ -44,6 +44,11 @@ const { data: order } = await client.createOrder(
 if (order.status === 'pending_payment') {
   window.location.href = order.checkoutUrl // open the payment link
 }
+
+// On your callbackUrl page, confirm the order with the `reference` from the query string.
+// It returns 404 until payment is confirmed, which usually takes a few seconds.
+const reference = new URL(window.location.href).searchParams.get('reference')!
+const { data: confirmed } = await client.getOrder('my-event', reference)
 ```
 
 ## API
@@ -64,16 +69,21 @@ interface ApiResult<T> {
 | Method                                    | Endpoint                                             |
 | ----------------------------------------- | ---------------------------------------------------- |
 | `health()`                                | `GET /health` (unauthenticated)                      |
+| `getHost(options?)`                       | `GET /host`                                          |
 | `listEvents(params?)`                     | `GET /events`                                        |
 | `getEvent(slug, options?)`                | `GET /events/{slug}`                                 |
 | `getEventGallery(slug, options?)`         | `GET /events/{slug}/gallery`                         |
+| `listSponsors(slug, options?)`            | `GET /events/{slug}/sponsors`                        |
+| `listMoments(slug, params?)`              | `GET /events/{slug}/moments`                         |
 | `listTickets(slug, options?)`             | `GET /events/{slug}/tickets`                         |
 | `listSales(slug, options?)`               | `GET /events/{slug}/sales`                           |
 | `verifySalePassword(slug, saleId, body)`  | `POST /events/{slug}/sales/{saleId}/verify-password` |
 | `joinSaleWaitlist(slug, saleId, body)`    | `POST /events/{slug}/sales/{saleId}/waitlist`        |
+| `validatePromoCode(slug, body, options?)` | `POST /events/{slug}/promo-codes/validate`           |
 | `createReservation(slug, body, options?)` | `POST /events/{slug}/reservations`                   |
 | `releaseReservation(slug, options?)`      | `DELETE /events/{slug}/reservations`                 |
 | `createOrder(slug, body, options?)`       | `POST /events/{slug}/orders`                         |
+| `getOrder(slug, reference, options?)`     | `GET /events/{slug}/orders/{reference}`              |
 
 ### Client options
 
@@ -127,6 +137,20 @@ if (upcoming) {
 }
 ```
 
+### Promo codes
+
+`validatePromoCode` checks a code before the attendee reserves, so you can show the
+discount early. Send the ticket IDs in the cart. It does not hold the code: pass it as
+`promoCode` to `createReservation` to apply it.
+
+```ts
+const { data: promo } = await client.validatePromoCode('my-event', {
+  code: 'EARLY10',
+  ticketIds: [ticket.id],
+})
+// promo.type is 'PERCENTAGE' or 'FIXED'; promo.value is the discount
+```
+
 ### Errors
 
 Non-2xx responses throw an `ApiError` with the parsed error envelope:
@@ -145,7 +169,8 @@ try {
 
 ### Conditional requests (ETag caching)
 
-`listEvents`, `getEvent` and `getEventGallery` support conditional requests. Pass a previous
+`getHost`, `listEvents`, `getEvent`, `getEventGallery`, `listSponsors` and `listMoments`
+support conditional requests. Pass a previous
 `etag` back as `ifNoneMatch`; a `304` resolves with `notModified: true` and
 `data: null`, so you can keep using your cached value:
 

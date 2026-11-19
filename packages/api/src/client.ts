@@ -6,13 +6,19 @@ import type {
   EventGallery,
   EventList,
   Health,
+  Host,
   JoinSaleWaitlistRequest,
   JoinSaleWaitlistResult,
+  MomentList,
   Order,
+  OrderDetails,
+  PromoCode,
   Reservation,
   ReleaseResult,
   SaleList,
+  SponsorList,
   Ticket,
+  ValidatePromoCodeRequest,
   VerifySalePasswordRequest,
   VerifySalePasswordResult,
 } from './types'
@@ -94,9 +100,25 @@ export interface ListEventsParams extends ConditionalRequestOptions {
   cursor?: string
 }
 
+export interface ListMomentsParams extends ConditionalRequestOptions {
+  /** Page size (1-50). Defaults to 20 server-side. */
+  limit?: number
+  /** Opaque pagination cursor returned as `nextCursor`. */
+  cursor?: string
+}
+
 export interface ListTicketsOptions extends RequestOptions {
   /** Report ticket statuses for this sale only. */
   saleId?: string
+}
+
+export interface ValidatePromoCodeOptions extends RequestOptions {
+  /**
+   * The attendee's `reservationToken`, sent as `X-Device-ID`, so uses of the code their
+   * reservation already holds still count as available to them. Filled in automatically
+   * in `'browser'` mode.
+   */
+  deviceId?: string
 }
 
 export interface ReservationOptions extends RequestOptions {
@@ -170,6 +192,9 @@ export interface JetronFluidClient {
   /** `GET /health` — readiness probe (unauthenticated). */
   health(options?: RequestOptions): Promise<ApiResult<Health>>
 
+  /** `GET /host` — the profile of the host that owns the API key. */
+  getHost(options?: ConditionalRequestOptions): Promise<ApiResult<Host | null>>
+
   /** `GET /events` — list the host's public events, newest first. */
   listEvents(params?: ListEventsParams): Promise<ApiResult<EventList | null>>
 
@@ -181,6 +206,15 @@ export interface JetronFluidClient {
     slug: string,
     options?: ConditionalRequestOptions,
   ): Promise<ApiResult<EventGallery | null>>
+
+  /** `GET /events/{slug}/sponsors` — list an event's sponsors. */
+  listSponsors(
+    slug: string,
+    options?: ConditionalRequestOptions,
+  ): Promise<ApiResult<SponsorList | null>>
+
+  /** `GET /events/{slug}/moments` — list photos attendees posted from the event, newest first. */
+  listMoments(slug: string, params?: ListMomentsParams): Promise<ApiResult<MomentList | null>>
 
   /** `GET /events/{slug}/tickets` — list an event's purchasable ticket types. */
   listTickets(slug: string, options?: ListTicketsOptions): Promise<ApiResult<Ticket[]>>
@@ -204,6 +238,13 @@ export interface JetronFluidClient {
     options?: RequestOptions,
   ): Promise<ApiResult<JoinSaleWaitlistResult>>
 
+  /** `POST /events/{slug}/promo-codes/validate` — check a promo code before reserving. */
+  validatePromoCode(
+    slug: string,
+    body: ValidatePromoCodeRequest,
+    options?: ValidatePromoCodeOptions,
+  ): Promise<ApiResult<PromoCode>>
+
   /** `POST /events/{slug}/reservations` — price the cart and hold stock. */
   createReservation(
     slug: string,
@@ -220,6 +261,16 @@ export interface JetronFluidClient {
     body: CreateOrderRequest,
     options?: CreateOrderOptions,
   ): Promise<ApiResult<Order>>
+
+  /**
+   * `GET /events/{slug}/orders/{reference}` — a confirmed order. Throws an `ApiError` with
+   * status 404 until payment is confirmed and tickets are issued.
+   */
+  getOrder(
+    slug: string,
+    reference: string,
+    options?: RequestOptions,
+  ): Promise<ApiResult<OrderDetails>>
 }
 
 function buildQuery(query?: Query): string {
@@ -323,6 +374,12 @@ export function createClient(options: JetronFluidClientOptions): JetronFluidClie
     return randomDeviceId()
   }
 
+  const optionalDeviceId = (deviceId: string | undefined): string | undefined => {
+    if (deviceId) return deviceId
+    if (deviceIdMode === 'browser') return browserDeviceId()
+    return undefined
+  }
+
   const existingDeviceId = (deviceId: string | undefined, method: string): string => {
     if (deviceId) return deviceId
     if (deviceIdMode === 'browser') return browserDeviceId()
@@ -377,6 +434,11 @@ export function createClient(options: JetronFluidClientOptions): JetronFluidClie
 
     health: (opts = {}) => request<Health>('GET', '/health', { auth: false, ...opts }),
 
+    getHost: (opts = {}) => {
+      const { ifNoneMatch, ...rest } = opts
+      return request<Host | null>('GET', '/host', { ifNoneMatch, ...rest })
+    },
+
     listEvents: (params = {}) => {
       const { category, q, limit, cursor, ifNoneMatch, ...rest } = params
       return request<EventList | null>('GET', '/events', {
@@ -394,6 +456,23 @@ export function createClient(options: JetronFluidClientOptions): JetronFluidClie
     getEventGallery: (slug, opts = {}) => {
       const { ifNoneMatch, ...rest } = opts
       return request<EventGallery | null>('GET', `/events/${encode(slug)}/gallery`, {
+        ifNoneMatch,
+        ...rest,
+      })
+    },
+
+    listSponsors: (slug, opts = {}) => {
+      const { ifNoneMatch, ...rest } = opts
+      return request<SponsorList | null>('GET', `/events/${encode(slug)}/sponsors`, {
+        ifNoneMatch,
+        ...rest,
+      })
+    },
+
+    listMoments: (slug, params = {}) => {
+      const { limit, cursor, ifNoneMatch, ...rest } = params
+      return request<MomentList | null>('GET', `/events/${encode(slug)}/moments`, {
+        query: { limit, cursor },
         ifNoneMatch,
         ...rest,
       })
@@ -423,6 +502,15 @@ export function createClient(options: JetronFluidClientOptions): JetronFluidClie
         { body, ...opts },
       ),
 
+    validatePromoCode: async (slug, body, opts = {}) => {
+      const { deviceId, ...rest } = opts
+      return request<PromoCode>('POST', `/events/${encode(slug)}/promo-codes/validate`, {
+        body,
+        deviceId: optionalDeviceId(deviceId ?? headerDeviceId(rest.headers)),
+        ...rest,
+      })
+    },
+
     createReservation: async (slug, body, opts = {}) => {
       const { deviceId, ...rest } = opts
       return request<Reservation>('POST', `/events/${encode(slug)}/reservations`, {
@@ -448,5 +536,8 @@ export function createClient(options: JetronFluidClientOptions): JetronFluidClie
         ...rest,
       })
     },
+
+    getOrder: (slug, reference, opts = {}) =>
+      request<OrderDetails>('GET', `/events/${encode(slug)}/orders/${encode(reference)}`, opts),
   }
 }
