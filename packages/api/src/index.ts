@@ -5,14 +5,16 @@
  * Works in browsers and Node.js 18+ using the platform `fetch`.
  */
 
-export { createClient, DEFAULT_BASE_URL } from './client'
+export { createClient, DEFAULT_BASE_URL, DEVICE_ID_STORAGE_KEY } from './client'
 export type {
   ApiResult,
   ConditionalRequestOptions,
   CreateOrderOptions,
+  DeviceIdMode,
   JetronFluidClient,
   JetronFluidClientOptions,
   ListEventsParams,
+  ListTicketsOptions,
   ReleaseOptions,
   RequestOptions,
   ReservationOptions,
@@ -37,13 +39,21 @@ export type {
   EventSummary,
   Health,
   HealthChecks,
+  JoinSaleWaitlistRequest,
+  JoinSaleWaitlistResult,
   Order,
   OrderStatus,
   ReleaseResult,
   Reservation,
   ReservationItemRequest,
   ReservationItemView,
+  Sale,
+  SaleList,
+  SalePhase,
   SubTicket,
   Ticket,
+  TicketSale,
   TicketStatus,
+  VerifySalePasswordRequest,
+  VerifySalePasswordResult,
 } from './types'

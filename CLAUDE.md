@@ -67,5 +67,6 @@ Conventions to preserve when extending the client:
 
 - Success responses are wrapped `{ status: true, data }`; every method returns an `ApiResult<T>` (`{ data, status, etag, notModified, response }`) where `data` is the unwrapped payload — `null` only on a `304`.
 - Non-2xx throws `ApiError`; `304` is not an error (`notModified: true`, `data: null`).
-- Headers are handled centrally in `request()`: `Authorization: Bearer` (skipped for `/health`), `X-Device-ID` for reservation/order calls (required for `createOrder`), `If-None-Match`/`ETag` for the conditional GETs (`listEvents`, `getEvent`, `getEventGallery`), `Content-Type` only when a body is present.
+- Headers are handled centrally in `request()`: `Authorization: Bearer` (skipped for `/health`), `X-Device-ID` for reservation/order/release calls, `If-None-Match`/`ETag` for the conditional GETs (`listEvents`, `getEvent`, `getEventGallery`), `Content-Type` only when a body is present.
 - Use the ambient-`Headers`-derived `HeadersInit` type rather than the DOM lib — this library must not depend on `lib: ["DOM"]`.
+- `X-Device-ID` follows `deviceIdMode`. `'browser'` (default when `window` and `document` exist) keeps one ID in `localStorage`; `'per-reservation'` (default elsewhere) mints a fresh UUID per `createReservation` and makes `createOrder`/`releaseReservation` throw without an explicit `deviceId`. Never fall back to one shared ID on a server: every attendee would share one reservation. Don't detect the browser via `localStorage` alone, because Node.js has a `localStorage` global too.

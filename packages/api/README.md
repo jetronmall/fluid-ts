@@ -38,7 +38,7 @@ const { data: order } = await client.createOrder(
     lastName: 'Lovelace',
     callbackUrl: 'https://your-site/checkout/callback',
   },
-  { deviceId: reservation.reservationToken }, // echoed as X-Device-ID
+  { deviceId: reservation.reservationToken }, // sent as X-Device-ID
 )
 
 if (order.status === 'pending_payment') {
@@ -61,25 +61,68 @@ interface ApiResult<T> {
 }
 ```
 
-| Method                                    | Endpoint                             |
-| ----------------------------------------- | ------------------------------------ |
-| `health()`                                | `GET /health` (unauthenticated)      |
-| `listEvents(params?)`                     | `GET /events`                        |
-| `getEvent(slug, options?)`                | `GET /events/{slug}`                 |
-| `getEventGallery(slug, options?)`         | `GET /events/{slug}/gallery`         |
-| `listTickets(slug, options?)`             | `GET /events/{slug}/tickets`         |
-| `createReservation(slug, body, options?)` | `POST /events/{slug}/reservations`   |
-| `releaseReservation(slug, options?)`      | `DELETE /events/{slug}/reservations` |
-| `createOrder(slug, body, options)`        | `POST /events/{slug}/orders`         |
+| Method                                    | Endpoint                                             |
+| ----------------------------------------- | ---------------------------------------------------- |
+| `health()`                                | `GET /health` (unauthenticated)                      |
+| `listEvents(params?)`                     | `GET /events`                                        |
+| `getEvent(slug, options?)`                | `GET /events/{slug}`                                 |
+| `getEventGallery(slug, options?)`         | `GET /events/{slug}/gallery`                         |
+| `listTickets(slug, options?)`             | `GET /events/{slug}/tickets`                         |
+| `listSales(slug, options?)`               | `GET /events/{slug}/sales`                           |
+| `verifySalePassword(slug, saleId, body)`  | `POST /events/{slug}/sales/{saleId}/verify-password` |
+| `joinSaleWaitlist(slug, saleId, body)`    | `POST /events/{slug}/sales/{saleId}/waitlist`        |
+| `createReservation(slug, body, options?)` | `POST /events/{slug}/reservations`                   |
+| `releaseReservation(slug, options?)`      | `DELETE /events/{slug}/reservations`                 |
+| `createOrder(slug, body, options?)`       | `POST /events/{slug}/orders`                         |
 
 ### Client options
 
 - `apiKey` (required) — your public key, sent as `Authorization: Bearer <key>`.
 - `fetch` — a custom fetch implementation (defaults to the global `fetch`).
 - `headers` — extra headers merged into every request.
+- `deviceIdMode` — how `X-Device-ID` is filled in on checkout calls (see below).
 - `baseUrl` — advanced/optional; defaults to the production Jetron Fluid API.
 
 Per-request options accept `signal` (an `AbortSignal`) and `headers`.
+
+### Device IDs (`X-Device-ID`)
+
+Reservation, order and release calls carry an `X-Device-ID` that ties them to one
+attendee. The client fills it in when you don't pass `deviceId`:
+
+- **`'browser'`** (default in browsers): one ID per browser, kept in `localStorage`
+  under `jetron_fluid_device_id` and reused on every checkout call.
+- **`'per-reservation'`** (default everywhere else): each `createReservation` without
+  a `deviceId` gets a new random ID, returned as `reservationToken`. Pass it as
+  `deviceId` to refresh the reservation, create the order or release it. Omitting it
+  on `createOrder` or `releaseReservation` throws.
+
+Use `'per-reservation'` on a server, where one client serves many attendees.
+
+### Sales
+
+```ts
+const { data: sales } = await client.listSales('my-event')
+const presale = sales.items.find((sale) => sale.requiresPassword && sale.phase === 'ACTIVE')
+
+if (presale) {
+  await client.verifySalePassword('my-event', presale.id, { password: 'VIP2026' })
+  await client.createReservation('my-event', {
+    items: [{ sku: presale.ticketIds[0], quantity: 1 }],
+    saleId: presale.id,
+    salePassword: 'VIP2026',
+  })
+}
+
+const upcoming = sales.items.find((sale) => sale.waitlistOpen)
+
+if (upcoming) {
+  await client.joinSaleWaitlist('my-event', upcoming.id, {
+    name: 'Ada Lovelace',
+    email: 'ada@example.com',
+  })
+}
+```
 
 ### Errors
 
@@ -99,7 +142,7 @@ try {
 
 ### Conditional requests (ETag caching)
 
-`listEvents` and `getEvent` support conditional requests. Pass a previous
+`listEvents`, `getEvent` and `getEventGallery` support conditional requests. Pass a previous
 `etag` back as `ifNoneMatch`; a `304` resolves with `notModified: true` and
 `data: null`, so you can keep using your cached value:
 

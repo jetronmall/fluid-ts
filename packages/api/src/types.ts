@@ -17,6 +17,7 @@ export type EventStatus = 'LIVE' | 'COMING_SOON' | 'CLOSED' | 'SOLD_OUT' | 'ACTI
 export type TicketStatus =
   | 'AVAILABLE'
   | 'SOLD_OUT'
+  | 'ALL_RESERVED'
   | 'COMING_SOON'
   | 'CLOSED'
   | 'DEADLINE_EXCEEDED'
@@ -24,6 +25,12 @@ export type TicketStatus =
   | 'SALE_ENDED'
 
 export type OrderStatus = 'confirmed' | 'pending_payment'
+
+/**
+ * `UPCOMING` before `startDate`, `ACTIVE` from `startDate` until `endDate`,
+ * `ENDED` after `endDate`. A sale without an `endDate` stays `ACTIVE`.
+ */
+export type SalePhase = 'UPCOMING' | 'ACTIVE' | 'ENDED'
 
 export type EventArtistPlatform = 'SPOTIFY' | 'DEEZER'
 
@@ -161,6 +168,63 @@ export interface Ticket {
   position: number
   /** If set, only buyers with an email on this domain may purchase. */
   emailDomainRestriction?: string
+  /** Open and upcoming sales that include this ticket. Empty when no sale is needed. */
+  sales: TicketSale[]
+}
+
+// ---------------------------------------------------------------------------
+// Sales
+// ---------------------------------------------------------------------------
+
+/** A sale that includes a ticket, as listed on the ticket. */
+export interface TicketSale {
+  id: string
+  name: string
+  startDate: string
+  endDate?: string
+  phase: SalePhase
+  requiresPassword: boolean
+}
+
+/** A timed sale, such as a presale or a general sale. */
+export interface Sale {
+  id: string
+  name: string
+  /** When the sale opens. */
+  startDate: string
+  /** When the sale closes. Absent when it has no end. */
+  endDate?: string
+  phase: SalePhase
+  /** Whether buyers need a password. The password itself is never returned. */
+  requiresPassword: boolean
+  /** Whether the sale covers every ticket. When `true`, `ticketIds` is empty. */
+  includeAllTickets: boolean
+  /** The tickets in this sale, when it does not cover every ticket. */
+  ticketIds: string[]
+  /** Whether attendees can still join this sale's waitlist. */
+  waitlistOpen: boolean
+}
+
+export interface SaleList {
+  items: Sale[]
+}
+
+export interface VerifySalePasswordRequest {
+  password: string
+}
+
+export interface VerifySalePasswordResult {
+  valid: true
+}
+
+export interface JoinSaleWaitlistRequest {
+  /** The attendee's full name. */
+  name: string
+  email: string
+}
+
+export interface JoinSaleWaitlistResult {
+  joined: true
 }
 
 // ---------------------------------------------------------------------------
@@ -177,6 +241,10 @@ export interface CreateReservationRequest {
   items: ReservationItemRequest[]
   /** Optional event promo code. Global promo codes are not supported. */
   promoCode?: string
+  /** The sale to buy from. When omitted, the open sale is used for tickets that need one. */
+  saleId?: string
+  /** The sale's password, when the sale's `requiresPassword` is `true`. */
+  salePassword?: string
 }
 
 export interface ReservationItemView {
@@ -189,7 +257,7 @@ export interface ReservationItemView {
 }
 
 export interface Reservation {
-  /** Echo as the `X-Device-ID` header on order and release calls. */
+  /** The attendee's device ID, sent as `X-Device-ID`. Pass it as `deviceId` on later calls. */
   reservationToken: string
   /** Opaque handle to the priced, server-held quote. Send back when ordering. */
   quoteReference: string
