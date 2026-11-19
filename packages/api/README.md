@@ -2,7 +2,7 @@
 
 TypeScript client for **Jetron Fluid**, the Jetron Ticket headless API. It wraps
 the REST endpoints as typed functions using the platform `fetch`, so it runs in
-browsers and in Node.js 18+ with no dependencies.
+browsers and in Node.js 20+ with no dependencies.
 
 The client mirrors [`specs/openapi.yaml`](./specs/openapi.yaml).
 
@@ -97,7 +97,10 @@ attendee. The client fills it in when you don't pass `deviceId`:
   `deviceId` to refresh the reservation, create the order or release it. Omitting it
   on `createOrder` or `releaseReservation` throws.
 
-Use `'per-reservation'` on a server, where one client serves many attendees.
+A `deviceId` option, or an `X-Device-ID` you set in `headers`, always wins over the
+automatic value. Use `'per-reservation'` on a server, where one client serves many
+attendees. Automatic IDs need Web Crypto (`crypto.randomUUID`), available in browsers
+and Node.js 20+.
 
 ### Sales
 

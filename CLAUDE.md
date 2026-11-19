@@ -56,7 +56,7 @@ The workspace is pinned to TypeScript 5.x via `overrides` in `pnpm-workspace.yam
 
 ## `@jetronticket/api`
 
-A hand-written, dependency-free client over the platform `fetch` (browsers and Node 18+). It is **spec-driven**: `packages/api/specs/openapi.yaml` is the source of truth, and the code mirrors it. When the spec changes, update the types and client together.
+A hand-written, dependency-free client over the platform `fetch` (browsers and Node.js 20+). It is **spec-driven**: `packages/api/specs/openapi.yaml` is the source of truth, and the code mirrors it. When the spec changes, update the types and client together.
 
 - `src/types.ts` — every schema/request/response type and the enums (as string-literal unions). Money is integer minor units; date-times are ISO strings.
 - `src/client.ts` — `createClient({ apiKey })` returning one method per endpoint. `baseUrl` is optional and defaults to `DEFAULT_BASE_URL` (production); it exists only for future alternate environments and should not be promoted in docs — event promoters talk to the production API. All requests go through a single internal `request()` helper that sets headers, serializes the body, and unwraps the response.

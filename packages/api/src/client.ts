@@ -57,7 +57,7 @@ export interface JetronFluidClientOptions {
   baseUrl?: string
   /**
    * Custom fetch implementation. Defaults to the global `fetch`
-   * (available in browsers and Node.js 18+).
+   * (available in browsers and Node.js 20+).
    */
   fetch?: typeof fetch
   /** Extra headers merged into every request. */
@@ -303,7 +303,7 @@ export function createClient(options: JetronFluidClientOptions): JetronFluidClie
   const fetchImpl = options.fetch ?? globalThis.fetch
   if (typeof fetchImpl !== 'function') {
     throw new Error(
-      'No fetch implementation found. Pass `fetch` in the client options or run on a platform with a global fetch (browsers, Node.js 18+).',
+      'No fetch implementation found. Pass `fetch` in the client options or run on a platform with a global fetch (browsers, Node.js 20+).',
     )
   }
   // Bind to avoid "Illegal invocation" when using the global fetch.
@@ -311,6 +311,11 @@ export function createClient(options: JetronFluidClientOptions): JetronFluidClie
 
   const deviceIdMode = options.deviceIdMode ?? (isBrowser() ? 'browser' : 'per-reservation')
   const browserDeviceId = createBrowserDeviceIdSource()
+
+  const headerDeviceId = (requestHeaders: HeadersInit | undefined): string | undefined =>
+    new Headers(requestHeaders).get('X-Device-ID') ??
+    new Headers(defaultHeaders).get('X-Device-ID') ??
+    undefined
 
   const reservationDeviceId = (deviceId: string | undefined): string => {
     if (deviceId) return deviceId
@@ -422,7 +427,7 @@ export function createClient(options: JetronFluidClientOptions): JetronFluidClie
       const { deviceId, ...rest } = opts
       return request<Reservation>('POST', `/events/${encode(slug)}/reservations`, {
         body,
-        deviceId: reservationDeviceId(deviceId),
+        deviceId: reservationDeviceId(deviceId ?? headerDeviceId(rest.headers)),
         ...rest,
       })
     },
@@ -430,7 +435,7 @@ export function createClient(options: JetronFluidClientOptions): JetronFluidClie
     releaseReservation: async (slug, opts = {}) => {
       const { deviceId, ...rest } = opts
       return request<ReleaseResult>('DELETE', `/events/${encode(slug)}/reservations`, {
-        deviceId: existingDeviceId(deviceId, 'releaseReservation'),
+        deviceId: existingDeviceId(deviceId ?? headerDeviceId(rest.headers), 'releaseReservation'),
         ...rest,
       })
     },
@@ -439,7 +444,7 @@ export function createClient(options: JetronFluidClientOptions): JetronFluidClie
       const { deviceId, ...rest } = opts
       return request<Order>('POST', `/events/${encode(slug)}/orders`, {
         body,
-        deviceId: existingDeviceId(deviceId, 'createOrder'),
+        deviceId: existingDeviceId(deviceId ?? headerDeviceId(rest.headers), 'createOrder'),
         ...rest,
       })
     },

@@ -2,7 +2,7 @@
  * @jetronticket/api
  *
  * TypeScript client for Jetron Fluid, the Jetron Ticket headless API.
- * Works in browsers and Node.js 18+ using the platform `fetch`.
+ * Works in browsers and Node.js 20+ using the platform `fetch`.
  */
 
 export { createClient, DEFAULT_BASE_URL, DEVICE_ID_STORAGE_KEY } from './client'
