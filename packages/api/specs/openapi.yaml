@@ -1690,14 +1690,16 @@ components:
         sku:
           type: string
           format: uuid
-          description: The ticket type ID.
+          description: The ticket type bought.
         name:
           type: string
+          description: The ticket name at purchase, even if the attendee later upgraded.
         quantity:
           type: integer
+          description: Tickets bought. For a group ticket, the number of groups.
         amount:
           type: integer
-          description: Total for this ticket type, in the smallest currency unit.
+          description: Total paid for this ticket type, in the smallest currency unit.
         formattedAmount:
           type: string
 

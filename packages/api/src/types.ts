@@ -402,11 +402,13 @@ export interface Order {
 }
 
 export interface OrderLine {
-  /** The ticket type ID. */
+  /** The ticket type bought. */
   sku: string
+  /** The ticket name at purchase, even if the attendee later upgraded. */
   name: string
+  /** Tickets bought. For a group ticket, the number of groups. */
   quantity: number
-  /** Total for this ticket type, in the smallest currency unit. */
+  /** Total paid for this ticket type, in the smallest currency unit. */
   amount: number
   formattedAmount: string
 }
