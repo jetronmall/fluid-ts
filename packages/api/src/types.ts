@@ -17,6 +17,7 @@ export type EventStatus = 'LIVE' | 'COMING_SOON' | 'CLOSED' | 'SOLD_OUT' | 'ACTI
 export type TicketStatus =
   | 'AVAILABLE'
   | 'SOLD_OUT'
+  | 'ALL_RESERVED'
   | 'COMING_SOON'
   | 'CLOSED'
   | 'DEADLINE_EXCEEDED'
@@ -24,6 +25,18 @@ export type TicketStatus =
   | 'SALE_ENDED'
 
 export type OrderStatus = 'confirmed' | 'pending_payment'
+
+/** `confirmed` once payment is confirmed and tickets are issued; `refunded` after a refund. */
+export type OrderDetailsStatus = 'confirmed' | 'refunded'
+
+/** `PERCENTAGE` takes a percentage off; `FIXED` takes off an amount in the smallest currency unit. */
+export type PromoCodeType = 'PERCENTAGE' | 'FIXED'
+
+/**
+ * `UPCOMING` before `startDate`, `ACTIVE` from `startDate` until `endDate`,
+ * `ENDED` after `endDate`. A sale without an `endDate` stays `ACTIVE`.
+ */
+export type SalePhase = 'UPCOMING' | 'ACTIVE' | 'ENDED'
 
 export type EventArtistPlatform = 'SPOTIFY' | 'DEEZER'
 
@@ -84,20 +97,20 @@ export interface EventArtistProfile {
   bannerURL?: string
 }
 
-/** A guest or performer featured on an event page. */
+/** A guest or performer in the event's lineup. */
 export interface EventHeadliner {
   id: string
   name: string
   role?: string
   imageURL?: string
-  /** Whether this is the event's default headliner. */
+  /** Whether this is the event's main act. */
   isMainArtist: boolean
   artist?: EventArtistProfile
 }
 
 /** The full event detail returned by `GET /events/{slug}`. */
 export interface Event extends EventSummary {
-  /** Public guests and performers featured on the event page. */
+  /** The event's lineup: every public guest and performer. */
   headliners: EventHeadliner[]
 }
 
@@ -111,10 +124,72 @@ export interface EventGallery {
   items: EventGalleryImage[]
 }
 
+/** An event sponsor. */
+export interface Sponsor {
+  id: string
+  name: string
+  /** The sponsor's website. Absent when none was given. */
+  url?: string
+  /** The sponsor's logo. */
+  imageURL: string
+}
+
+export interface SponsorList {
+  items: Sponsor[]
+}
+
+/** The attendee who posted a moment, as shown publicly on Jetron Ticket. */
+export interface MomentAuthor {
+  name: string
+  username?: string
+  imageURL: string
+}
+
+/** A photo an attendee posted from the event. */
+export interface Moment {
+  id: string
+  imageURL: string
+  /** Image width in pixels. */
+  width: number
+  /** Image height in pixels. */
+  height: number
+  /** Width divided by height. */
+  aspectRatio: number
+  caption?: string
+  likesCount: number
+  commentsCount: number
+  author: MomentAuthor
+  createdAt: string
+}
+
+export interface MomentList {
+  items: Moment[]
+  /** Pass as `cursor` to fetch the next page. Absent on the last page. */
+  nextCursor?: string
+}
+
 export interface EventList {
   items: EventSummary[]
   /** Pass as `cursor` to fetch the next page. Absent on the last page. */
   nextCursor?: string
+}
+
+// ---------------------------------------------------------------------------
+// Host
+// ---------------------------------------------------------------------------
+
+/** The host that owns the API key. */
+export interface Host {
+  id: string
+  name: string
+  /** The host's handle on Jetron Ticket. */
+  slug: string
+  /** Profile image or logo. */
+  imageURL: string
+  /** Wide banner image. Absent when the host has none. */
+  bannerImageURL?: string
+  /** Whether Jetron Ticket has verified the host. */
+  isVerified: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +236,86 @@ export interface Ticket {
   position: number
   /** If set, only buyers with an email on this domain may purchase. */
   emailDomainRestriction?: string
+  /** Open and upcoming sales that include this ticket. Empty when no sale is needed. */
+  sales: TicketSale[]
+}
+
+// ---------------------------------------------------------------------------
+// Sales
+// ---------------------------------------------------------------------------
+
+/** A sale that includes a ticket, as listed on the ticket. */
+export interface TicketSale {
+  id: string
+  name: string
+  startDate: string
+  endDate?: string
+  phase: SalePhase
+  requiresPassword: boolean
+}
+
+/** A timed sale, such as a presale or a general sale. */
+export interface Sale {
+  id: string
+  name: string
+  /** When the sale opens. */
+  startDate: string
+  /** When the sale closes. Absent when it has no end. */
+  endDate?: string
+  phase: SalePhase
+  /** Whether buyers need a password. The password itself is never returned. */
+  requiresPassword: boolean
+  /** Whether the sale covers every ticket. When `true`, `ticketIds` is empty. */
+  includeAllTickets: boolean
+  /** The tickets in this sale, when it does not cover every ticket. */
+  ticketIds: string[]
+  /** Whether attendees can still join this sale's waitlist. */
+  waitlistOpen: boolean
+}
+
+export interface SaleList {
+  items: Sale[]
+}
+
+export interface VerifySalePasswordRequest {
+  password: string
+}
+
+export interface VerifySalePasswordResult {
+  valid: true
+}
+
+export interface JoinSaleWaitlistRequest {
+  /** The attendee's full name. */
+  name: string
+  email: string
+}
+
+export interface JoinSaleWaitlistResult {
+  joined: true
+}
+
+// ---------------------------------------------------------------------------
+// Promo codes
+// ---------------------------------------------------------------------------
+
+export interface ValidatePromoCodeRequest {
+  code: string
+  /** The ticket IDs in the cart. Required for codes limited to some tickets. */
+  ticketIds?: string[]
+  /** How many tickets the code will cover. Defaults to 1. */
+  quantity?: number
+}
+
+export interface PromoCode {
+  code: string
+  type: PromoCodeType
+  /** A percentage (`10` is 10%) for `PERCENTAGE`, or an amount in the smallest currency unit for `FIXED`. */
+  value: number
+  /** The tickets the code applies to. Empty when it applies to every ticket. */
+  ticketIds: string[]
+  /** When the code stops working. Absent when it does not expire. */
+  expiresAt?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -177,6 +332,10 @@ export interface CreateReservationRequest {
   items: ReservationItemRequest[]
   /** Optional event promo code. Global promo codes are not supported. */
   promoCode?: string
+  /** The sale to buy from. When omitted, the open sale is used for tickets that need one. */
+  saleId?: string
+  /** The sale's password, when the sale's `requiresPassword` is `true`. */
+  salePassword?: string
 }
 
 export interface ReservationItemView {
@@ -189,7 +348,7 @@ export interface ReservationItemView {
 }
 
 export interface Reservation {
-  /** Echo as the `X-Device-ID` header on order and release calls. */
+  /** The attendee's device ID, sent as `X-Device-ID`. Pass it as `deviceId` on later calls. */
   reservationToken: string
   /** Opaque handle to the priced, server-held quote. Send back when ordering. */
   quoteReference: string
@@ -232,7 +391,7 @@ export interface CreateOrderRequest {
 export interface Order {
   /** `confirmed` for free orders; `pending_payment` for paid orders. */
   status: OrderStatus
-  /** The order reference. Present for free orders; paid orders receive it on callback. */
+  /** The order reference. Look the order up with `getOrder`; it is also added to your callbackUrl. */
   reference: string
   /** Payment link for paid orders; your callbackUrl (with reference) for free orders. */
   checkoutUrl: string
@@ -240,6 +399,32 @@ export interface Order {
   discount?: number
   promoCode?: string
   clientExpiresAt?: string
+}
+
+export interface OrderLine {
+  /** The ticket type bought. */
+  sku: string
+  /** The ticket name at purchase, even if the attendee later upgraded. */
+  name: string
+  /** Tickets bought. For a group ticket, the number of groups. */
+  quantity: number
+  /** Total paid for this ticket type, in the smallest currency unit. */
+  amount: number
+  formattedAmount: string
+}
+
+/** A confirmed order, returned by `GET /events/{slug}/orders/{reference}`. */
+export interface OrderDetails {
+  reference: string
+  status: OrderDetailsStatus
+  /** Amount paid, in the smallest currency unit. */
+  total: number
+  formattedTotal: string
+  /** Discount from a promo code, if one was used. */
+  discount?: number
+  promoCode?: string
+  items: OrderLine[]
+  createdAt: string
 }
 
 // ---------------------------------------------------------------------------

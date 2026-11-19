@@ -6,10 +6,21 @@ import type {
   EventGallery,
   EventList,
   Health,
+  Host,
+  JoinSaleWaitlistRequest,
+  JoinSaleWaitlistResult,
+  MomentList,
   Order,
+  OrderDetails,
+  PromoCode,
   Reservation,
   ReleaseResult,
+  SaleList,
+  SponsorList,
   Ticket,
+  ValidatePromoCodeRequest,
+  VerifySalePasswordRequest,
+  VerifySalePasswordResult,
 } from './types'
 
 // ---------------------------------------------------------------------------
@@ -26,6 +37,21 @@ export type HeadersInit = NonNullable<ConstructorParameters<typeof Headers>[0]>
 /** The production Jetron Fluid API base URL. */
 export const DEFAULT_BASE_URL = 'https://fluid.jetronticket.com/api/v1'
 
+/** The `localStorage` key that holds the browser's device ID in `'browser'` mode. */
+export const DEVICE_ID_STORAGE_KEY = 'jetron_fluid_device_id'
+
+/**
+ * How the client fills in `X-Device-ID` when a checkout call does not pass `deviceId`.
+ *
+ * - `'browser'`: one device ID per browser, kept in `localStorage`, used for every
+ *   reservation, order and release call. Nothing to pass around.
+ * - `'per-reservation'`: every `createReservation` call without a `deviceId` gets a new
+ *   random ID, returned as `reservationToken`. Pass that token as `deviceId` to refresh
+ *   the reservation, create the order or release it. Use this on a server, where one
+ *   client serves many attendees.
+ */
+export type DeviceIdMode = 'browser' | 'per-reservation'
+
 export interface JetronFluidClientOptions {
   /** Your public API key (e.g. `jt_public_...`), sent as a Bearer token. */
   apiKey: string
@@ -37,11 +63,16 @@ export interface JetronFluidClientOptions {
   baseUrl?: string
   /**
    * Custom fetch implementation. Defaults to the global `fetch`
-   * (available in browsers and Node.js 18+).
+   * (available in browsers and Node.js 20+).
    */
   fetch?: typeof fetch
   /** Extra headers merged into every request. */
   headers?: HeadersInit
+  /**
+   * How `X-Device-ID` is filled in when a checkout call does not pass `deviceId`.
+   * Defaults to `'browser'` when running in a browser and `'per-reservation'` elsewhere.
+   */
+  deviceIdMode?: DeviceIdMode
 }
 
 /** Options common to every request. */
@@ -69,28 +100,50 @@ export interface ListEventsParams extends ConditionalRequestOptions {
   cursor?: string
 }
 
+export interface ListMomentsParams extends ConditionalRequestOptions {
+  /** Page size (1-50). Defaults to 20 server-side. */
+  limit?: number
+  /** Opaque pagination cursor returned as `nextCursor`. */
+  cursor?: string
+}
+
+export interface ListTicketsOptions extends RequestOptions {
+  /** Report ticket statuses for this sale only. */
+  saleId?: string
+}
+
+export interface ValidatePromoCodeOptions extends RequestOptions {
+  /**
+   * The attendee's `reservationToken`, sent as `X-Device-ID`, so uses of the code their
+   * reservation already holds still count as available to them. Filled in automatically
+   * in `'browser'` mode.
+   */
+  deviceId?: string
+}
+
 export interface ReservationOptions extends RequestOptions {
   /**
-   * The `reservationToken` (a UUID) identifying the attendee's cart, sent as
-   * `X-Device-ID`. Omit to start a new reservation; pass it to refresh one.
+   * The attendee's device ID (a UUID), sent as `X-Device-ID`. Pass a previous
+   * `reservationToken` to refresh that reservation. When omitted, the client fills
+   * it in according to `deviceIdMode`.
    */
   deviceId?: string
 }
 
 export interface ReleaseOptions extends RequestOptions {
   /**
-   * The `reservationToken` to release, sent as `X-Device-ID`. If omitted, the
-   * server releases the reservation held for your client IP + event.
+   * The `reservationToken` to release, sent as `X-Device-ID`. Optional in
+   * `'browser'` mode; required in `'per-reservation'` mode.
    */
   deviceId?: string
 }
 
 export interface CreateOrderOptions extends RequestOptions {
   /**
-   * The `reservationToken` from the reservation response, echoed as
-   * `X-Device-ID`. Required.
+   * The `reservationToken` from the reservation response, sent as `X-Device-ID`.
+   * Optional in `'browser'` mode; required in `'per-reservation'` mode.
    */
-  deviceId: string
+  deviceId?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -139,6 +192,9 @@ export interface JetronFluidClient {
   /** `GET /health` — readiness probe (unauthenticated). */
   health(options?: RequestOptions): Promise<ApiResult<Health>>
 
+  /** `GET /host` — the profile of the host that owns the API key. */
+  getHost(options?: ConditionalRequestOptions): Promise<ApiResult<Host | null>>
+
   /** `GET /events` — list the host's public events, newest first. */
   listEvents(params?: ListEventsParams): Promise<ApiResult<EventList | null>>
 
@@ -151,8 +207,43 @@ export interface JetronFluidClient {
     options?: ConditionalRequestOptions,
   ): Promise<ApiResult<EventGallery | null>>
 
+  /** `GET /events/{slug}/sponsors` — list an event's sponsors. */
+  listSponsors(
+    slug: string,
+    options?: ConditionalRequestOptions,
+  ): Promise<ApiResult<SponsorList | null>>
+
+  /** `GET /events/{slug}/moments` — list photos attendees posted from the event, newest first. */
+  listMoments(slug: string, params?: ListMomentsParams): Promise<ApiResult<MomentList | null>>
+
   /** `GET /events/{slug}/tickets` — list an event's purchasable ticket types. */
-  listTickets(slug: string, options?: RequestOptions): Promise<ApiResult<Ticket[]>>
+  listTickets(slug: string, options?: ListTicketsOptions): Promise<ApiResult<Ticket[]>>
+
+  /** `GET /events/{slug}/sales` — list an event's sales, including ended ones. */
+  listSales(slug: string, options?: RequestOptions): Promise<ApiResult<SaleList>>
+
+  /** `POST /events/{slug}/sales/{saleId}/verify-password` — check a sale password. */
+  verifySalePassword(
+    slug: string,
+    saleId: string,
+    body: VerifySalePasswordRequest,
+    options?: RequestOptions,
+  ): Promise<ApiResult<VerifySalePasswordResult>>
+
+  /** `POST /events/{slug}/sales/{saleId}/waitlist` — join a sale's waitlist. */
+  joinSaleWaitlist(
+    slug: string,
+    saleId: string,
+    body: JoinSaleWaitlistRequest,
+    options?: RequestOptions,
+  ): Promise<ApiResult<JoinSaleWaitlistResult>>
+
+  /** `POST /events/{slug}/promo-codes/validate` — check a promo code before reserving. */
+  validatePromoCode(
+    slug: string,
+    body: ValidatePromoCodeRequest,
+    options?: ValidatePromoCodeOptions,
+  ): Promise<ApiResult<PromoCode>>
 
   /** `POST /events/{slug}/reservations` — price the cart and hold stock. */
   createReservation(
@@ -168,8 +259,18 @@ export interface JetronFluidClient {
   createOrder(
     slug: string,
     body: CreateOrderRequest,
-    options: CreateOrderOptions,
+    options?: CreateOrderOptions,
   ): Promise<ApiResult<Order>>
+
+  /**
+   * `GET /events/{slug}/orders/{reference}` — a confirmed order. Throws an `ApiError` with
+   * status 404 until payment is confirmed and tickets are issued.
+   */
+  getOrder(
+    slug: string,
+    reference: string,
+    options?: RequestOptions,
+  ): Promise<ApiResult<OrderDetails>>
 }
 
 function buildQuery(query?: Query): string {
@@ -180,6 +281,58 @@ function buildQuery(query?: Query): string {
   }
   const qs = params.toString()
   return qs ? `?${qs}` : ''
+}
+
+function isBrowser(): boolean {
+  return 'window' in globalThis && 'document' in globalThis
+}
+
+function randomDeviceId(): string {
+  const webCrypto = globalThis.crypto
+  if (typeof webCrypto?.randomUUID === 'function') return webCrypto.randomUUID()
+  if (typeof webCrypto?.getRandomValues === 'function') {
+    const bytes = webCrypto.getRandomValues(new Uint8Array(16))
+    bytes[6] = (bytes[6]! & 0x0f) | 0x40
+    bytes[8] = (bytes[8]! & 0x3f) | 0x80
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+  }
+  throw new Error(
+    'No secure random number generator is available to create a device ID. Pass `deviceId` yourself.',
+  )
+}
+
+function readStoredDeviceId(): string | null {
+  try {
+    return globalThis.localStorage?.getItem(DEVICE_ID_STORAGE_KEY) ?? null
+  } catch {
+    return null
+  }
+}
+
+function storeDeviceId(deviceId: string): void {
+  try {
+    globalThis.localStorage?.setItem(DEVICE_ID_STORAGE_KEY, deviceId)
+  } catch {
+    return
+  }
+}
+
+function createBrowserDeviceIdSource(): () => string {
+  let sessionDeviceId: string | undefined
+  return () => {
+    const stored = readStoredDeviceId()
+    if (stored) return stored
+    sessionDeviceId ??= randomDeviceId()
+    storeDeviceId(sessionDeviceId)
+    return sessionDeviceId
+  }
+}
+
+function missingDeviceIdError(method: string): Error {
+  return new Error(
+    `${method} needs \`deviceId\` in 'per-reservation' mode. Pass the reservation's \`reservationToken\`.`,
+  )
 }
 
 /**
@@ -201,11 +354,37 @@ export function createClient(options: JetronFluidClientOptions): JetronFluidClie
   const fetchImpl = options.fetch ?? globalThis.fetch
   if (typeof fetchImpl !== 'function') {
     throw new Error(
-      'No fetch implementation found. Pass `fetch` in the client options or run on a platform with a global fetch (browsers, Node.js 18+).',
+      'No fetch implementation found. Pass `fetch` in the client options or run on a platform with a global fetch (browsers, Node.js 20+).',
     )
   }
   // Bind to avoid "Illegal invocation" when using the global fetch.
   const doFetch: typeof fetch = (input, init) => fetchImpl(input, init)
+
+  const deviceIdMode = options.deviceIdMode ?? (isBrowser() ? 'browser' : 'per-reservation')
+  const browserDeviceId = createBrowserDeviceIdSource()
+
+  const headerDeviceId = (requestHeaders: HeadersInit | undefined): string | undefined =>
+    new Headers(requestHeaders).get('X-Device-ID') ??
+    new Headers(defaultHeaders).get('X-Device-ID') ??
+    undefined
+
+  const reservationDeviceId = (deviceId: string | undefined): string => {
+    if (deviceId) return deviceId
+    if (deviceIdMode === 'browser') return browserDeviceId()
+    return randomDeviceId()
+  }
+
+  const optionalDeviceId = (deviceId: string | undefined): string | undefined => {
+    if (deviceId) return deviceId
+    if (deviceIdMode === 'browser') return browserDeviceId()
+    return undefined
+  }
+
+  const existingDeviceId = (deviceId: string | undefined, method: string): string => {
+    if (deviceId) return deviceId
+    if (deviceIdMode === 'browser') return browserDeviceId()
+    throw missingDeviceIdError(method)
+  }
 
   async function request<T>(
     method: string,
@@ -255,6 +434,11 @@ export function createClient(options: JetronFluidClientOptions): JetronFluidClie
 
     health: (opts = {}) => request<Health>('GET', '/health', { auth: false, ...opts }),
 
+    getHost: (opts = {}) => {
+      const { ifNoneMatch, ...rest } = opts
+      return request<Host | null>('GET', '/host', { ifNoneMatch, ...rest })
+    },
+
     listEvents: (params = {}) => {
       const { category, q, limit, cursor, ifNoneMatch, ...rest } = params
       return request<EventList | null>('GET', '/events', {
@@ -277,29 +461,83 @@ export function createClient(options: JetronFluidClientOptions): JetronFluidClie
       })
     },
 
-    listTickets: (slug, opts = {}) =>
-      request<Ticket[]>('GET', `/events/${encode(slug)}/tickets`, opts),
+    listSponsors: (slug, opts = {}) => {
+      const { ifNoneMatch, ...rest } = opts
+      return request<SponsorList | null>('GET', `/events/${encode(slug)}/sponsors`, {
+        ifNoneMatch,
+        ...rest,
+      })
+    },
 
-    createReservation: (slug, body, opts = {}) => {
+    listMoments: (slug, params = {}) => {
+      const { limit, cursor, ifNoneMatch, ...rest } = params
+      return request<MomentList | null>('GET', `/events/${encode(slug)}/moments`, {
+        query: { limit, cursor },
+        ifNoneMatch,
+        ...rest,
+      })
+    },
+
+    listTickets: (slug, opts = {}) => {
+      const { saleId, ...rest } = opts
+      return request<Ticket[]>('GET', `/events/${encode(slug)}/tickets`, {
+        query: { saleId },
+        ...rest,
+      })
+    },
+
+    listSales: (slug, opts = {}) => request<SaleList>('GET', `/events/${encode(slug)}/sales`, opts),
+
+    verifySalePassword: (slug, saleId, body, opts = {}) =>
+      request<VerifySalePasswordResult>(
+        'POST',
+        `/events/${encode(slug)}/sales/${encode(saleId)}/verify-password`,
+        { body, ...opts },
+      ),
+
+    joinSaleWaitlist: (slug, saleId, body, opts = {}) =>
+      request<JoinSaleWaitlistResult>(
+        'POST',
+        `/events/${encode(slug)}/sales/${encode(saleId)}/waitlist`,
+        { body, ...opts },
+      ),
+
+    validatePromoCode: async (slug, body, opts = {}) => {
+      const { deviceId, ...rest } = opts
+      return request<PromoCode>('POST', `/events/${encode(slug)}/promo-codes/validate`, {
+        body,
+        deviceId: optionalDeviceId(deviceId ?? headerDeviceId(rest.headers)),
+        ...rest,
+      })
+    },
+
+    createReservation: async (slug, body, opts = {}) => {
       const { deviceId, ...rest } = opts
       return request<Reservation>('POST', `/events/${encode(slug)}/reservations`, {
         body,
-        deviceId,
+        deviceId: reservationDeviceId(deviceId ?? headerDeviceId(rest.headers)),
         ...rest,
       })
     },
 
-    releaseReservation: (slug, opts = {}) => {
+    releaseReservation: async (slug, opts = {}) => {
       const { deviceId, ...rest } = opts
       return request<ReleaseResult>('DELETE', `/events/${encode(slug)}/reservations`, {
-        deviceId,
+        deviceId: existingDeviceId(deviceId ?? headerDeviceId(rest.headers), 'releaseReservation'),
         ...rest,
       })
     },
 
-    createOrder: (slug, body, opts) => {
+    createOrder: async (slug, body, opts = {}) => {
       const { deviceId, ...rest } = opts
-      return request<Order>('POST', `/events/${encode(slug)}/orders`, { body, deviceId, ...rest })
+      return request<Order>('POST', `/events/${encode(slug)}/orders`, {
+        body,
+        deviceId: existingDeviceId(deviceId ?? headerDeviceId(rest.headers), 'createOrder'),
+        ...rest,
+      })
     },
+
+    getOrder: (slug, reference, opts = {}) =>
+      request<OrderDetails>('GET', `/events/${encode(slug)}/orders/${encode(reference)}`, opts),
   }
 }

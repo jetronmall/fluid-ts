@@ -56,7 +56,7 @@ The workspace is pinned to TypeScript 5.x via `overrides` in `pnpm-workspace.yam
 
 ## `@jetronticket/api`
 
-A hand-written, dependency-free client over the platform `fetch` (browsers and Node 18+). It is **spec-driven**: `packages/api/specs/openapi.yaml` is the source of truth, and the code mirrors it. When the spec changes, update the types and client together.
+A hand-written, dependency-free client over the platform `fetch` (browsers and Node.js 20+). It is **spec-driven**: `packages/api/specs/openapi.yaml` is the source of truth, and the code mirrors it. When the spec changes, update the types and client together.
 
 - `src/types.ts` — every schema/request/response type and the enums (as string-literal unions). Money is integer minor units; date-times are ISO strings.
 - `src/client.ts` — `createClient({ apiKey })` returning one method per endpoint. `baseUrl` is optional and defaults to `DEFAULT_BASE_URL` (production); it exists only for future alternate environments and should not be promoted in docs — event promoters talk to the production API. All requests go through a single internal `request()` helper that sets headers, serializes the body, and unwraps the response.
@@ -67,5 +67,6 @@ Conventions to preserve when extending the client:
 
 - Success responses are wrapped `{ status: true, data }`; every method returns an `ApiResult<T>` (`{ data, status, etag, notModified, response }`) where `data` is the unwrapped payload — `null` only on a `304`.
 - Non-2xx throws `ApiError`; `304` is not an error (`notModified: true`, `data: null`).
-- Headers are handled centrally in `request()`: `Authorization: Bearer` (skipped for `/health`), `X-Device-ID` for reservation/order calls (required for `createOrder`), `If-None-Match`/`ETag` for the conditional GETs (`listEvents`, `getEvent`, `getEventGallery`), `Content-Type` only when a body is present.
+- Headers are handled centrally in `request()`: `Authorization: Bearer` (skipped for `/health`), `X-Device-ID` for reservation/order/release calls, `If-None-Match`/`ETag` for the conditional GETs (`getHost`, `listEvents`, `getEvent`, `getEventGallery`, `listSponsors`, `listMoments`), `Content-Type` only when a body is present.
 - Use the ambient-`Headers`-derived `HeadersInit` type rather than the DOM lib — this library must not depend on `lib: ["DOM"]`.
+- `X-Device-ID` follows `deviceIdMode`. `'browser'` (default when `window` and `document` exist) keeps one ID in `localStorage`; `'per-reservation'` (default elsewhere) mints a fresh UUID per `createReservation` and makes `createOrder`/`releaseReservation` throw without an explicit `deviceId`. Never fall back to one shared ID on a server: every attendee would share one reservation. Don't detect the browser via `localStorage` alone, because Node.js has a `localStorage` global too.

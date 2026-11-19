@@ -15,11 +15,39 @@ info:
     3. `POST /events/{slug}/orders` completes checkout. Echo the `reservationToken`
        as the `X-Device-ID` header and send the `quoteReference` back. Paid orders
        return the payment link in `checkoutUrl`; free orders are confirmed immediately.
-    4. `DELETE /events/{slug}/reservations` releases a hold early (also echo the
+       Both return the order's `reference`.
+    4. After payment the attendee lands on your `callbackUrl` with `reference` in
+       the query string. `GET /events/{slug}/orders/{reference}` returns the order
+       once tickets are issued, and `404` until then.
+    5. `DELETE /events/{slug}/reservations` releases a hold early (also echo the
        token as `X-Device-ID`). Holds otherwise expire on their own.
 
     Reserved-seating (seats.io) events are not supported over this API yet and
-    return `400`. Reservations and orders are not cached.
+    return `400`. Events with a waiting room return `403` from reservations.
+    Reservations and orders are not cached.
+
+    ## Sales
+    An event can split ticket sales into timed sales, such as a presale and a
+    general sale. `GET /events/{slug}/sales` lists them with their phase and
+    dates, so you can show countdowns. Tickets in a sale that has not started
+    report `SALE_NOT_STARTED`. A sale can require a password: check it with
+    `POST /events/{slug}/sales/{saleId}/verify-password`, then send `saleId`
+    and `salePassword` with the reservation. Attendees can join a sale's
+    waitlist with `POST /events/{slug}/sales/{saleId}/waitlist` to be emailed
+    when it opens.
+
+    ## Host and event content
+    `GET /host` returns the profile of the host that owns the API key, for your
+    site header. Each event also has its lineup (`headliners` on the event),
+    sponsors (`GET /events/{slug}/sponsors`) and moments, the photos attendees
+    post from the event (`GET /events/{slug}/moments`).
+
+    ## Calling from a browser or a server
+    Every endpoint takes the public key, so you can call it from browser code
+    or from your own server. Event, ticket and sale reads are the same for
+    every visitor, so they suit server rendering and caching. Reservation,
+    order, password and waitlist calls act for one attendee: from a server,
+    send a separate `X-Device-ID` per attendee, never one shared value.
 
     ## Authentication
     Authenticated endpoints require your API key as a Bearer token:
@@ -57,6 +85,10 @@ servers:
 tags:
   - name: Events
     description: Browse a host's public events
+  - name: Host
+    description: The host that owns the API key
+  - name: Sales
+    description: Timed sales, sale passwords and waitlists
   - name: Checkout
     description: Reserve tickets and create orders for your attendees
   - name: System
@@ -85,6 +117,43 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthEnvelope'
+
+  /host:
+    get:
+      tags: [Host]
+      summary: Get the host profile
+      description: |
+        Returns the profile of the host that owns the API key: name, slug,
+        profile image and banner. Use it for your site header or footer.
+      parameters:
+        - $ref: '#/components/parameters/IfNoneMatch'
+      responses:
+        '200':
+          description: The host profile
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, data]
+                properties:
+                  status:
+                    type: boolean
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/Host'
+        '304':
+          $ref: '#/components/responses/NotModified'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /events:
     get:
@@ -120,6 +189,8 @@ paths:
           $ref: '#/components/responses/NotModified'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /events/{slug}:
     get:
@@ -154,6 +225,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /events/{slug}/gallery:
     get:
@@ -188,14 +261,107 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /events/{slug}/sponsors:
+    get:
+      tags: [Events]
+      summary: List an event's sponsors
+      description: Lists the sponsors shown on a public event's page, in the order they were added.
+      parameters:
+        - $ref: '#/components/parameters/EventSlug'
+        - $ref: '#/components/parameters/IfNoneMatch'
+      responses:
+        '200':
+          description: The event's sponsors
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, data]
+                properties:
+                  status:
+                    type: boolean
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/SponsorList'
+        '304':
+          $ref: '#/components/responses/NotModified'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /events/{slug}/moments:
+    get:
+      tags: [Events]
+      summary: List an event's moments
+      description: |
+        Lists moments, the photos attendees post from the event on Jetron
+        Ticket, newest first, with cursor pagination. Moments that were
+        removed are left out.
+      parameters:
+        - $ref: '#/components/parameters/EventSlug'
+        - $ref: '#/components/parameters/MomentLimit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/IfNoneMatch'
+      responses:
+        '200':
+          description: A page of moments
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, data]
+                properties:
+                  status:
+                    type: boolean
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/MomentList'
+        '304':
+          $ref: '#/components/responses/NotModified'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /events/{slug}/tickets:
     get:
       tags: [Events]
       summary: List an event's tickets
-      description: Lists the purchasable ticket types for an event, ordered by their display position.
+      description: |
+        Lists the purchasable ticket types for an event, ordered by their display
+        position. A ticket that only a sale can unlock lists that sale in
+        `sales`, and its `status` is `SALE_NOT_STARTED` before the sale opens and
+        `SALE_ENDED` after the last one closes. Pass `saleId` to report statuses
+        for one sale, for example on a presale page.
       parameters:
         - $ref: '#/components/parameters/EventSlug'
+        - name: saleId
+          in: query
+          required: false
+          description: Report ticket statuses for this sale only. Must belong to the event.
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: The event's ticket types
@@ -212,10 +378,173 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Ticket'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /events/{slug}/sales:
+    get:
+      tags: [Sales]
+      summary: List an event's sales
+      description: |
+        Lists every sale for an event, including ended ones, ordered by start
+        date. Use `phase`, `startDate` and `endDate` to show countdowns and
+        labels such as "Presale opens in 2 days". `phase` is worked out when you
+        make the request, so refetch it when a countdown reaches zero.
+      parameters:
+        - $ref: '#/components/parameters/EventSlug'
+      responses:
+        '200':
+          description: The event's sales
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, data]
+                properties:
+                  status:
+                    type: boolean
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/SaleList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /events/{slug}/sales/{saleId}/verify-password:
+    post:
+      tags: [Sales]
+      summary: Check a sale password
+      description: |
+        Checks a password for a sale that is open now, so you can unlock the
+        sale's tickets before reserving. Passwords are not case-sensitive. A
+        correct password is not remembered: send it again as `salePassword`
+        when you create the reservation. Returns `400` for a wrong password or a
+        sale that is not open.
+      parameters:
+        - $ref: '#/components/parameters/EventSlug'
+        - $ref: '#/components/parameters/SaleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifySalePasswordRequest'
+      responses:
+        '200':
+          description: The password is correct, or the sale has no password
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, data]
+                properties:
+                  status:
+                    type: boolean
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/VerifySalePasswordResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /events/{slug}/sales/{saleId}/waitlist:
+    post:
+      tags: [Sales]
+      summary: Join a sale's waitlist
+      description: |
+        Adds an attendee to a sale's waitlist. They get a confirmation email
+        and, unless the organiser has turned these off, an email when the sale
+        is about to open. Joining again with the same email is safe. Signups close once the sale is about to open (see the
+        sale's `waitlistOpen`); later attempts return `400`.
+      parameters:
+        - $ref: '#/components/parameters/EventSlug'
+        - $ref: '#/components/parameters/SaleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JoinSaleWaitlistRequest'
+      responses:
+        '200':
+          description: The attendee is on the waitlist
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, data]
+                properties:
+                  status:
+                    type: boolean
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/JoinSaleWaitlistResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /events/{slug}/promo-codes/validate:
+    post:
+      tags: [Checkout]
+      summary: Check a promo code
+      description: |
+        Checks a promo code before the attendee reserves, so you can show the
+        discount early. Send the ticket IDs in the cart: a code limited to some
+        tickets returns `400` without them, or when the cart has other tickets.
+        Only codes that belong to this event work. Checking a code does not
+        hold it: send it as `promoCode` when you create the reservation, which
+        applies the discount. Returns `404` for an unknown or expired code and
+        `400` when the code has no uses left.
+      parameters:
+        - $ref: '#/components/parameters/EventSlug'
+        - $ref: '#/components/parameters/DeviceIdPromoCode'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidatePromoCodeRequest'
+      responses:
+        '200':
+          description: The code is valid for this cart
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, data]
+                properties:
+                  status:
+                    type: boolean
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/PromoCode'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /events/{slug}/reservations:
     post:
@@ -223,12 +552,12 @@ paths:
       summary: Create or refresh a reservation
       description: |
         Prices the cart and holds the requested stock for the checkout window.
-        Returns a `reservationToken` and a `quoteReference`. Send the
-        `X-Device-ID` header to refresh/extend an existing reservation for the
-        same attendee; omit it to start a new one (a token is minted and
-        returned). A promo code must belong to the event in `{slug}`;
-        global promo codes are not supported. Reserved-seating events
-        return `400`.
+        Returns a `reservationToken` and a `quoteReference`. Send the same
+        `X-Device-ID` again to refresh the attendee's reservation. A promo code
+        must belong to the event in `{slug}`; global promo codes are not
+        supported. To buy tickets from a sale, send `saleId`, and
+        `salePassword` when the sale has one. Reserved-seating events return
+        `400`. Events with a waiting room return `403`.
       parameters:
         - $ref: '#/components/parameters/EventSlug'
         - $ref: '#/components/parameters/DeviceIdOptional'
@@ -256,8 +585,12 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
     delete:
       tags: [Checkout]
       summary: Release a reservation
@@ -295,6 +628,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /events/{slug}/orders:
     post:
@@ -305,9 +640,12 @@ paths:
         as the `X-Device-ID` header and send the `quoteReference` from the
         reservation response. Free (zero-total) orders are
         fulfilled immediately and return `status: confirmed`; paid orders return
-        `status: pending_payment` and a payment link in `checkoutUrl`. After
-        payment the attendee is redirected to your `callbackUrl` with a `reference`
-        query parameter. A duplicate order for the same reservation returns `409`.
+        `status: pending_payment` and a payment link in `checkoutUrl`. Both
+        return the order's `reference`. After payment the attendee is redirected
+        to your `callbackUrl` with `reference` in the query string. The redirect
+        alone does not prove payment: confirm it with
+        `GET /events/{slug}/orders/{reference}` or the `TICKET_PURCHASED`
+        webhook. A duplicate order for the same reservation returns `409`.
       parameters:
         - $ref: '#/components/parameters/EventSlug'
         - $ref: '#/components/parameters/DeviceIdRequired'
@@ -339,6 +677,49 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /events/{slug}/orders/{reference}:
+    get:
+      tags: [Checkout]
+      summary: Get an order
+      description: |
+        Returns an order once payment is confirmed and its tickets are issued.
+        Use it on your `callbackUrl` page, with the `reference` from the query
+        string. Until the order exists it returns `404`: payment confirmation
+        usually takes a few seconds, so retry every couple of seconds for up to
+        a minute before telling the attendee to check their email. An unpaid or
+        abandoned payment also returns `404`. Buyer details are not returned;
+        the `TICKET_PURCHASED` webhook carries them.
+      parameters:
+        - $ref: '#/components/parameters/EventSlug'
+        - name: reference
+          in: path
+          required: true
+          description: The order `reference`, from the order response or the `callbackUrl` query string.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The order
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, data]
+                properties:
+                  status:
+                    type: boolean
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/OrderDetails'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
 components:
   securitySchemes:
@@ -348,6 +729,14 @@ components:
       description: Your public API key (e.g. `jt_public_...`) passed as a Bearer token.
 
   parameters:
+    SaleId:
+      name: saleId
+      in: path
+      required: true
+      description: The sale's ID, from the sales endpoint.
+      schema:
+        type: string
+        format: uuid
     EventSlug:
       name: slug
       in: path
@@ -379,6 +768,16 @@ components:
         minimum: 1
         maximum: 100
         default: 20
+    MomentLimit:
+      name: limit
+      in: query
+      required: false
+      description: Page size (1–50).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 20
     Cursor:
       name: cursor
       in: query
@@ -398,15 +797,25 @@ components:
       in: header
       required: false
       description: |
-        The `reservationToken` (a UUID) identifying the attendee's cart. Strongly
-        recommended: generate one stable UUID per attendee (persist it in the
-        browser) and send it on every call so each attendee maps to exactly one
-        reservation. Send it to refresh that reservation.
+        A UUID identifying one attendee's cart. Create one per attendee, keep it
+        for their visit, and send it on every reservation and order call. The
+        reservation response returns it as `reservationToken`.
 
-        If omitted, the server reuses a single token per client IP + event for the
-        reservation window, so repeated requests don't each hold fresh stock — but
-        distinct attendees behind the same IP would then share a reservation, so
-        supplying your own per-attendee token is preferred.
+        If omitted, the server reuses one token per client IP and event, so
+        every attendee behind the same IP shares one reservation. When you call
+        from your own server, every attendee shares your server's IP, so always
+        send a separate token per attendee.
+      schema:
+        type: string
+        format: uuid
+    DeviceIdPromoCode:
+      name: X-Device-ID
+      in: header
+      required: false
+      description: |
+        The attendee's `reservationToken`, if they already have a reservation.
+        If that reservation already holds uses of the code, they still count
+        as available to this attendee.
       schema:
         type: string
         format: uuid
@@ -448,7 +857,8 @@ components:
     BadRequest:
       description: |
         Invalid request — malformed body, failed validation, a missing
-        reservation token, or a reserved-seating event (not supported).
+        reservation token, a wrong sale password, a sale that is not open, or a
+        reserved-seating event (not supported).
       content:
         application/json:
           schema:
@@ -461,6 +871,27 @@ components:
             $ref: '#/components/schemas/Error'
     NotFound:
       description: The requested resource does not exist for this host
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: |
+        The key is the wrong type, or the event uses a waiting room, which this
+        API does not support yet (`error_code` `event_queue_not_admitted`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    TooManyRequests:
+      description: |
+        Rate limit reached for this API key. Wait for the number of seconds in
+        the `Retry-After` header, then retry.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema:
+            type: integer
       content:
         application/json:
           schema:
@@ -632,7 +1063,9 @@ components:
           properties:
             headliners:
               type: array
-              description: Public guests and performers featured on the event page.
+              description: |
+                The event's lineup: every public guest and performer shown on
+                the event page. `isMainArtist` marks the main act.
               items:
                 $ref: '#/components/schemas/EventHeadliner'
 
@@ -740,6 +1173,7 @@ components:
         - isCombo
         - isRsvp
         - position
+        - sales
       properties:
         id:
           type: string
@@ -803,12 +1237,136 @@ components:
         emailDomainRestriction:
           type: string
           description: If set, only buyers with an email on this domain may purchase.
+        sales:
+          type: array
+          description: |
+            Open and upcoming sales that include this ticket. Empty when anyone
+            can buy it without a sale.
+          items:
+            $ref: '#/components/schemas/TicketSale'
+
+    SalePhase:
+      type: string
+      enum: [UPCOMING, ACTIVE, ENDED]
+      description: |
+        `UPCOMING` before `startDate`, `ACTIVE` from `startDate` until
+        `endDate`, `ENDED` after `endDate`. A sale without an `endDate` stays
+        `ACTIVE`.
+
+    TicketSale:
+      type: object
+      required: [id, name, startDate, phase, requiresPassword]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+        phase:
+          $ref: '#/components/schemas/SalePhase'
+        requiresPassword:
+          type: boolean
+
+    Sale:
+      type: object
+      required:
+        - id
+        - name
+        - startDate
+        - phase
+        - requiresPassword
+        - includeAllTickets
+        - ticketIds
+        - waitlistOpen
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Presale
+        startDate:
+          type: string
+          format: date-time
+          description: When the sale opens.
+        endDate:
+          type: string
+          format: date-time
+          description: When the sale closes. Absent when it has no end.
+        phase:
+          $ref: '#/components/schemas/SalePhase'
+        requiresPassword:
+          type: boolean
+          description: Whether buyers need a password. The password itself is never returned.
+        includeAllTickets:
+          type: boolean
+          description: Whether the sale covers every ticket. When `true`, `ticketIds` is empty.
+        ticketIds:
+          type: array
+          description: The tickets in this sale, when it does not cover every ticket.
+          items:
+            type: string
+            format: uuid
+        waitlistOpen:
+          type: boolean
+          description: Whether attendees can still join this sale's waitlist.
+
+    SaleList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Sale'
+
+    VerifySalePasswordRequest:
+      type: object
+      required: [password]
+      properties:
+        password:
+          type: string
+
+    VerifySalePasswordResult:
+      type: object
+      required: [valid]
+      properties:
+        valid:
+          type: boolean
+          const: true
+
+    JoinSaleWaitlistRequest:
+      type: object
+      required: [name, email]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          description: The attendee's full name.
+        email:
+          type: string
+          format: email
+
+    JoinSaleWaitlistResult:
+      type: object
+      required: [joined]
+      properties:
+        joined:
+          type: boolean
+          const: true
 
     TicketStatus:
       type: string
       enum:
         - AVAILABLE
         - SOLD_OUT
+        - ALL_RESERVED
         - COMING_SOON
         - CLOSED
         - DEADLINE_EXCEEDED
@@ -847,6 +1405,15 @@ components:
         promoCode:
           type: string
           description: Optional promo code to apply to the cart. It must belong to this event; global promo codes are not supported.
+        saleId:
+          type: string
+          format: uuid
+          description: |
+            The sale to buy from. Optional: when omitted, the open sale is used
+            for tickets that need one.
+        salePassword:
+          type: string
+          description: The sale's password, when `requiresPassword` is `true`.
 
     ReservationItemView:
       type: object
@@ -877,7 +1444,7 @@ components:
         reservationToken:
           type: string
           format: uuid
-          description: Echo as the `X-Device-ID` header on order and release calls.
+          description: Send as the `X-Device-ID` header on later reservation, order and release calls for this attendee.
         quoteReference:
           type: string
           description: |
@@ -951,8 +1518,9 @@ components:
         reference:
           type: string
           description: |
-            The order reference. Present for free orders; for paid orders the
-            reference is delivered on the `callbackUrl` after payment.
+            The order reference. Look the order up with
+            `GET /events/{slug}/orders/{reference}`. It is also added to your
+            `callbackUrl` after payment.
         checkoutUrl:
           type: string
           description: |
@@ -965,6 +1533,203 @@ components:
         promoCode:
           type: string
         clientExpiresAt:
+          type: string
+          format: date-time
+
+    Host:
+      type: object
+      required: [id, name, slug, imageURL, isVerified]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+          description: The host's handle on Jetron Ticket.
+        imageURL:
+          type: string
+          description: Profile image or logo.
+        bannerImageURL:
+          type: string
+          description: Wide banner image. Absent when the host has none.
+        isVerified:
+          type: boolean
+          description: Whether Jetron Ticket has verified the host.
+
+    Sponsor:
+      type: object
+      required: [id, name, imageURL]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        url:
+          type: string
+          description: The sponsor's website. Absent when none was given.
+        imageURL:
+          type: string
+          description: The sponsor's logo.
+
+    SponsorList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Sponsor'
+
+    MomentAuthor:
+      type: object
+      required: [name, imageURL]
+      description: The attendee who posted the moment, as shown publicly on Jetron Ticket.
+      properties:
+        name:
+          type: string
+        username:
+          type: string
+        imageURL:
+          type: string
+
+    Moment:
+      type: object
+      required:
+        [id, imageURL, width, height, aspectRatio, likesCount, commentsCount, author, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        imageURL:
+          type: string
+        width:
+          type: integer
+          description: Image width in pixels.
+        height:
+          type: integer
+          description: Image height in pixels.
+        aspectRatio:
+          type: number
+          description: Width divided by height.
+        caption:
+          type: string
+        likesCount:
+          type: integer
+        commentsCount:
+          type: integer
+        author:
+          $ref: '#/components/schemas/MomentAuthor'
+        createdAt:
+          type: string
+          format: date-time
+
+    MomentList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Moment'
+        nextCursor:
+          type: string
+          description: Pass as `cursor` to fetch the next page. Absent on the last page.
+
+    ValidatePromoCodeRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          maxLength: 50
+        ticketIds:
+          type: array
+          maxItems: 100
+          description: The ticket IDs in the cart.
+          items:
+            type: string
+            format: uuid
+        quantity:
+          type: integer
+          minimum: 1
+          description: How many tickets the code will cover. Defaults to 1.
+
+    PromoCode:
+      type: object
+      required: [code, type, value, ticketIds]
+      properties:
+        code:
+          type: string
+        type:
+          type: string
+          enum: [PERCENTAGE, FIXED]
+        value:
+          type: integer
+          description: |
+            The discount. A percentage (for example `10` for 10%) when `type`
+            is `PERCENTAGE`, or an amount in the smallest currency unit when it
+            is `FIXED`.
+        ticketIds:
+          type: array
+          description: The tickets the code applies to. Empty when it applies to every ticket.
+          items:
+            type: string
+            format: uuid
+        expiresAt:
+          type: string
+          format: date-time
+          description: When the code stops working. Absent when it does not expire.
+
+    OrderLine:
+      type: object
+      required: [sku, name, quantity, amount, formattedAmount]
+      properties:
+        sku:
+          type: string
+          format: uuid
+          description: The ticket type bought.
+        name:
+          type: string
+          description: The ticket name at purchase, even if the attendee later upgraded.
+        quantity:
+          type: integer
+          description: Tickets bought. For a group ticket, the number of groups.
+        amount:
+          type: integer
+          description: Total paid for this ticket type, in the smallest currency unit.
+        formattedAmount:
+          type: string
+
+    OrderDetails:
+      type: object
+      required: [reference, status, total, formattedTotal, items, createdAt]
+      properties:
+        reference:
+          type: string
+        status:
+          type: string
+          enum: [confirmed, refunded]
+          description: |
+            `confirmed` once payment is confirmed and tickets are issued;
+            `refunded` after the order is refunded.
+        total:
+          type: integer
+          description: Amount paid, in the smallest currency unit.
+        formattedTotal:
+          type: string
+        discount:
+          type: integer
+          description: Discount from a promo code, if one was used.
+        promoCode:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderLine'
+        createdAt:
           type: string
           format: date-time
 
