@@ -162,7 +162,7 @@ create a second client for it on your server, and only call it after your app ha
 verified that the signed-in user owns the email. Other methods reject the private key.
 
 ```ts
-const fluidPrivate = createClient({ apiKey: process.env.JETRON_PRIVATE_KEY! })
+const fluidPrivate = createClient({ apiKey: process.env.JETRON_PRIVATE_API_KEY! })
 
 const { data } = await fluidPrivate.lookupAttendeeTickets({
   email: session.user.email,
