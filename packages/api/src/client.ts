@@ -368,7 +368,7 @@ export function createClient(options: JetronFluidClientOptions): JetronFluidClie
   if (!apiKey) {
     throw new Error('createClient requires an `apiKey`.')
   }
-  if (apiKey.startsWith(PRIVATE_API_KEY_PREFIX) && isBrowser()) {
+  if (apiKey.trim().startsWith(PRIVATE_API_KEY_PREFIX) && isBrowser()) {
     throw new Error(
       'Your private API key must never be used in a browser. Call lookupAttendeeTickets from your server.',
     )
