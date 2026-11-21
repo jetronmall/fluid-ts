@@ -741,9 +741,10 @@ paths:
         tickets are left out. Requires the private key; call it from your server
         only, after verifying the attendee owns the email.
 
-        `qrCode` is the value to render as the entry QR code. It is absent when
-        the ticket is `USED`, or `LOCKED` because the event only admits tickets
-        shown in the Jetron Ticket app. Do not cache responses: scans change
+        `qrCode` is the value to render as the entry QR code. It is only present
+        for `VALID` tickets. A `TRANSFER_PENDING` ticket cannot be scanned until
+        the recipient accepts or the transfer is cancelled. Responses are sent
+        with `Cache-Control: no-store`; do not cache them, because scans change
         ticket status live.
       security:
         - PrivateApiKeyAuth: []
@@ -1896,11 +1897,11 @@ components:
           enum: [VALID, USED, TRANSFER_PENDING, LOCKED]
           description: |
             `VALID` can be scanned. `USED` has been scanned. `TRANSFER_PENDING`
-            can still be scanned while a transfer awaits the recipient.
-            `LOCKED` is only shown in the Jetron Ticket app.
+            cannot be scanned while a transfer awaits the recipient. `LOCKED`
+            is only shown in the Jetron Ticket app.
         qrCode:
           type: string
-          description: The entry QR code value. Present for `VALID` and `TRANSFER_PENDING`.
+          description: The entry QR code value. Present only for `VALID` tickets.
         scannedAt:
           type: string
           format: date-time

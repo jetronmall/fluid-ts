@@ -171,7 +171,7 @@ const { data } = await fluidPrivate.lookupAttendeeTickets({
 
 for (const order of data.items) {
   for (const ticket of order.tickets) {
-    // ticket.qrCode is set for VALID and TRANSFER_PENDING tickets
+    // ticket.qrCode is only set for VALID tickets
   }
 }
 ```
