@@ -177,9 +177,10 @@ for (const order of data.items) {
 }
 ```
 
-Some events hold back QR codes until shortly before the ticket's date. Until then the
-ticket comes back `LOCKED`, without a `qrCode`, and `unlocksAt` says when the code becomes
-available. Fetch the tickets again after that time to get it. Refunded orders and invalidated tickets are left out, and tickets follow
+When an event has Website & App Only turned on, its tickets stay locked until the event's
+Ticket Release Time before each ticket's date (7 days unless the organizer changes it).
+Until then the ticket comes back `LOCKED`, without a `qrCode`, and `unlocksAt` says when
+the code becomes available. Fetch the tickets again after that time to get it. Refunded orders and invalidated tickets are left out, and tickets follow
 transfers. Pass `data.nextCursor` as `cursor` for the next page. Don't cache the
 response: scans change ticket status live.
 

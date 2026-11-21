@@ -743,10 +743,12 @@ paths:
 
         `qrCode` is the value to render as the entry QR code. It is only present
         for `VALID` tickets. A `TRANSFER_PENDING` ticket cannot be scanned until
-        the recipient accepts or the transfer is cancelled. Some events hold back
-        QR codes until shortly before the ticket's date: until then the ticket is
-        `LOCKED`, and `unlocksAt` says when its QR code becomes available. Fetch
-        the ticket again after that time to get it. Responses are sent
+        the recipient accepts or the transfer is cancelled. When an event has
+        Website & App Only turned on, its tickets stay locked until the event's
+        Ticket Release Time before each ticket's date (7 days unless the
+        organizer changes it). Until then the ticket is `LOCKED`, and
+        `unlocksAt` says when its QR code becomes available. Fetch the ticket
+        again after that time to get it. Responses are sent
         with `Cache-Control: no-store`; do not cache them, because scans change
         ticket status live.
       security:
