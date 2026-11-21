@@ -1,5 +1,6 @@
 import { ApiError } from './errors'
 import type {
+  AttendeeTicketOrderList,
   CreateOrderRequest,
   CreateReservationRequest,
   Event,
@@ -9,6 +10,7 @@ import type {
   Host,
   JoinSaleWaitlistRequest,
   JoinSaleWaitlistResult,
+  LookupAttendeeTicketsRequest,
   MomentList,
   Order,
   OrderDetails,
@@ -37,6 +39,9 @@ export type HeadersInit = NonNullable<ConstructorParameters<typeof Headers>[0]>
 /** The production Jetron Fluid API base URL. */
 export const DEFAULT_BASE_URL = 'https://fluid.jetronticket.com/api/v1'
 
+/** The prefix of private API keys, which must never be used in a browser. */
+export const PRIVATE_API_KEY_PREFIX = 'jt_private_'
+
 /** The `localStorage` key that holds the browser's device ID in `'browser'` mode. */
 export const DEVICE_ID_STORAGE_KEY = 'jetron_fluid_device_id'
 
@@ -53,7 +58,11 @@ export const DEVICE_ID_STORAGE_KEY = 'jetron_fluid_device_id'
 export type DeviceIdMode = 'browser' | 'per-reservation'
 
 export interface JetronFluidClientOptions {
-  /** Your public API key (e.g. `jt_public_...`), sent as a Bearer token. */
+  /**
+   * Your API key, sent as a Bearer token. Use the public key (`jt_public_...`) for every
+   * method except `lookupAttendeeTickets`, which needs the private key (`jt_private_...`)
+   * and only runs on a server.
+   */
   apiKey: string
   /**
    * Override the API base URL. Defaults to the production Jetron Fluid API.
@@ -271,6 +280,16 @@ export interface JetronFluidClient {
     reference: string,
     options?: RequestOptions,
   ): Promise<ApiResult<OrderDetails>>
+
+  /**
+   * `POST /attendees/tickets/lookup` — the tickets an email holds for your events. Needs a
+   * client created with your private key, on your server, after your app has verified that
+   * the signed-in user owns the email.
+   */
+  lookupAttendeeTickets(
+    body: LookupAttendeeTicketsRequest,
+    options?: RequestOptions,
+  ): Promise<ApiResult<AttendeeTicketOrderList>>
 }
 
 function buildQuery(query?: Query): string {
@@ -348,6 +367,11 @@ export function createClient(options: JetronFluidClientOptions): JetronFluidClie
   const { apiKey, headers: defaultHeaders } = options
   if (!apiKey) {
     throw new Error('createClient requires an `apiKey`.')
+  }
+  if (apiKey.trim().startsWith(PRIVATE_API_KEY_PREFIX) && isBrowser()) {
+    throw new Error(
+      'Your private API key must never be used in a browser. Call lookupAttendeeTickets from your server.',
+    )
   }
   const baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '')
 
@@ -539,5 +563,8 @@ export function createClient(options: JetronFluidClientOptions): JetronFluidClie
 
     getOrder: (slug, reference, opts = {}) =>
       request<OrderDetails>('GET', `/events/${encode(slug)}/orders/${encode(reference)}`, opts),
+
+    lookupAttendeeTickets: (body, opts = {}) =>
+      request<AttendeeTicketOrderList>('POST', '/attendees/tickets/lookup', { body, ...opts }),
   }
 }

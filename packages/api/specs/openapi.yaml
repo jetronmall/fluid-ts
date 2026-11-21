@@ -43,8 +43,8 @@ info:
     post from the event (`GET /events/{slug}/moments`).
 
     ## Calling from a browser or a server
-    Every endpoint takes the public key, so you can call it from browser code
-    or from your own server. Event, ticket and sale reads are the same for
+    Every endpoint except the attendee ticket lookup takes the public key, so
+    you can call it from browser code or from your own server. Event, ticket and sale reads are the same for
     every visitor, so they suit server rendering and caching. Reservation,
     order, password and waitlist calls act for one attendee: from a server,
     send a separate `X-Device-ID` per attendee, never one shared value.
@@ -55,6 +55,13 @@ info:
         Authorization: Bearer jt_public_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
     All events are automatically scoped to the event host that owns the API key.
+
+    ## Attendee tickets
+    `POST /attendees/tickets/lookup` returns the tickets an email holds for your
+    events, so attendees can see their QR codes in your own app. It takes your
+    private key (`jt_private_...`) and must only be called from your server,
+    after your app has verified that the signed-in user owns the email. The
+    public key gets `403`.
 
     ## Response envelope
     Successful responses are wrapped as `{ "data": <payload>, "status": true }`.
@@ -91,6 +98,8 @@ tags:
     description: Timed sales, sale passwords and waitlists
   - name: Checkout
     description: Reserve tickets and create orders for your attendees
+  - name: Attendees
+    description: Tickets your attendees hold, for server-side use with the private key
   - name: System
     description: Health and service metadata
 
@@ -721,12 +730,70 @@ paths:
         '429':
           $ref: '#/components/responses/TooManyRequests'
 
+  /attendees/tickets/lookup:
+    post:
+      tags: [Attendees]
+      summary: Look up an attendee's tickets
+      description: |
+        Returns the tickets an email currently holds for your events, newest
+        activity first. Tickets transferred away from the email are left out and
+        tickets transferred to it are included. Refunded orders and invalidated
+        tickets are left out. Requires the private key; call it from your server
+        only, after verifying the attendee owns the email.
+
+        `qrCode` is the value to render as the entry QR code. It is only present
+        for `VALID` tickets. A `TRANSFER_PENDING` ticket cannot be scanned until
+        the recipient accepts or the transfer is cancelled. When an event has
+        Website & App Only turned on, its tickets stay locked until the event's
+        Ticket Release Time before each ticket's date (7 days unless the
+        organizer changes it). Until then the ticket is `LOCKED`, and
+        `unlocksAt` says when its QR code becomes available. Fetch the ticket
+        again after that time to get it. Responses are sent
+        with `Cache-Control: no-store`; do not cache them, because scans change
+        ticket status live.
+      security:
+        - PrivateApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LookupAttendeeTicketsRequest'
+      responses:
+        '200':
+          description: The attendee's ticket orders
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, data]
+                properties:
+                  status:
+                    type: boolean
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/AttendeeTicketOrderList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
 components:
   securitySchemes:
     ApiKeyAuth:
       type: http
       scheme: bearer
       description: Your public API key (e.g. `jt_public_...`) passed as a Bearer token.
+    PrivateApiKeyAuth:
+      type: http
+      scheme: bearer
+      description: Your private API key (e.g. `jt_private_...`) passed as a Bearer token. Server-side only.
 
   parameters:
     SaleId:
@@ -1730,6 +1797,121 @@ components:
           items:
             $ref: '#/components/schemas/OrderLine'
         createdAt:
+          type: string
+          format: date-time
+
+    LookupAttendeeTicketsRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          description: The attendee's email. Matching ignores case and surrounding spaces.
+        eventSlug:
+          type: string
+          description: Only return tickets for this event. Unknown slugs return `404`.
+        used:
+          type: boolean
+          description: |
+            `false` returns orders with at least one unscanned ticket for events
+            that closed less than a day ago or have not closed; `true` returns
+            the rest: fully scanned orders and orders for events that closed
+            more than a day ago. Omit for both.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+        cursor:
+          type: string
+          description: The `nextCursor` from the previous page.
+
+    AttendeeTicketOrderList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendeeTicketOrder'
+        nextCursor:
+          type: string
+          description: Pass as `cursor` to fetch the next page. Absent on the last page.
+
+    AttendeeTicketOrder:
+      type: object
+      required: [id, ticketId, ticketName, event, tickets, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        ticketId:
+          type: string
+          format: uuid
+        ticketName:
+          type: string
+        event:
+          $ref: '#/components/schemas/AttendeeTicketEvent'
+        tickets:
+          type: array
+          description: The admissions on this order the email holds.
+          items:
+            $ref: '#/components/schemas/AttendeeTicket'
+        createdAt:
+          type: string
+          format: date-time
+
+    AttendeeTicketEvent:
+      type: object
+      required: [id, name, slug, date, closingDate, timezone]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        date:
+          type: string
+          format: date-time
+        closingDate:
+          type: string
+          format: date-time
+        timezone:
+          type: string
+
+    AttendeeTicket:
+      type: object
+      required: [id, name, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: The admission's name; for bundles, the included ticket.
+        date:
+          type: string
+          format: date-time
+          description: The day this admission is for, on multi-day events.
+        status:
+          type: string
+          enum: [VALID, USED, TRANSFER_PENDING, LOCKED]
+          description: |
+            `VALID` can be scanned. `USED` has been scanned. `TRANSFER_PENDING`
+            cannot be scanned while a transfer awaits the recipient. `LOCKED`
+            has a QR code that is held back until `unlocksAt`.
+        qrCode:
+          type: string
+          description: The entry QR code value. Present only for `VALID` tickets.
+        unlocksAt:
+          type: string
+          format: date-time
+          description: When a `LOCKED` ticket's QR code becomes available. Present only for `LOCKED` tickets.
+        scannedAt:
           type: string
           format: date-time
 

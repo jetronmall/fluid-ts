@@ -84,10 +84,13 @@ interface ApiResult<T> {
 | `releaseReservation(slug, options?)`      | `DELETE /events/{slug}/reservations`                 |
 | `createOrder(slug, body, options?)`       | `POST /events/{slug}/orders`                         |
 | `getOrder(slug, reference, options?)`     | `GET /events/{slug}/orders/{reference}`              |
+| `lookupAttendeeTickets(body, options?)`   | `POST /attendees/tickets/lookup` (private key)       |
 
 ### Client options
 
-- `apiKey` (required) — your public key, sent as `Authorization: Bearer <key>`.
+- `apiKey` (required) — your API key, sent as `Authorization: Bearer <key>`. Use the
+  public key for every method except `lookupAttendeeTickets`, which needs the private
+  key. `createClient` throws if it gets a private key in a browser.
 - `fetch` — a custom fetch implementation (defaults to the global `fetch`).
 - `headers` — extra headers merged into every request.
 - `deviceIdMode` — how `X-Device-ID` is filled in on checkout calls (see below).
@@ -150,6 +153,36 @@ const { data: promo } = await client.validatePromoCode('my-event', {
 })
 // promo.type is 'PERCENTAGE' or 'FIXED'; promo.value is the discount
 ```
+
+### Attendee tickets
+
+`lookupAttendeeTickets` returns the tickets an email holds for your events, so attendees
+who sign in to your own app can see their QR codes. It needs your **private** key, so
+create a second client for it on your server, and only call it after your app has
+verified that the signed-in user owns the email. Other methods reject the private key.
+
+```ts
+const fluidPrivate = createClient({ apiKey: process.env.JETRON_PRIVATE_API_KEY! })
+
+const { data } = await fluidPrivate.lookupAttendeeTickets({
+  email: session.user.email,
+  used: false,
+})
+
+for (const order of data.items) {
+  for (const ticket of order.tickets) {
+    // ticket.qrCode is only set for VALID tickets
+    // ticket.unlocksAt is set for LOCKED tickets
+  }
+}
+```
+
+When an event has Website & App Only turned on, its tickets stay locked until the event's
+Ticket Release Time before each ticket's date (7 days unless the organizer changes it).
+Until then the ticket comes back `LOCKED`, without a `qrCode`, and `unlocksAt` says when
+the code becomes available. Fetch the tickets again after that time to get it. Refunded orders and invalidated tickets are left out, and tickets follow
+transfers. Pass `data.nextCursor` as `cursor` for the next page. Don't cache the
+response: scans change ticket status live.
 
 ### Errors
 
