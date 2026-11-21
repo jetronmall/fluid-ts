@@ -38,6 +38,12 @@ export type PromoCodeType = 'PERCENTAGE' | 'FIXED'
  */
 export type SalePhase = 'UPCOMING' | 'ACTIVE' | 'ENDED'
 
+/**
+ * `VALID` can be scanned. `USED` has been scanned. `TRANSFER_PENDING` can still be scanned
+ * while a transfer awaits the recipient. `LOCKED` is only shown in the Jetron Ticket app.
+ */
+export type AttendeeTicketStatus = 'VALID' | 'USED' | 'TRANSFER_PENDING' | 'LOCKED'
+
 export type EventArtistPlatform = 'SPOTIFY' | 'DEEZER'
 
 // ---------------------------------------------------------------------------
@@ -425,6 +431,63 @@ export interface OrderDetails {
   promoCode?: string
   items: OrderLine[]
   createdAt: string
+}
+
+// ---------------------------------------------------------------------------
+// Attendee tickets
+// ---------------------------------------------------------------------------
+
+export interface LookupAttendeeTicketsRequest {
+  /** The attendee's email. Matching ignores case and surrounding spaces. */
+  email: string
+  /** Only return tickets for this event. An unknown slug throws a 404 `ApiError`. */
+  eventSlug?: string
+  /**
+   * `false` returns orders with at least one unscanned ticket for events that closed less
+   * than a day ago or have not closed; `true` returns the rest. Omit for both.
+   */
+  used?: boolean
+  /** Page size (1-100). Defaults to 20 server-side. */
+  limit?: number
+  /** The `nextCursor` from the previous page. */
+  cursor?: string
+}
+
+export interface AttendeeTicketEvent {
+  id: string
+  name: string
+  slug: string
+  date: string
+  closingDate: string
+  timezone: string
+}
+
+export interface AttendeeTicket {
+  id: string
+  /** The admission's name; for bundles, the included ticket. */
+  name: string
+  /** The day this admission is for, on multi-day events. */
+  date?: string
+  status: AttendeeTicketStatus
+  /** The entry QR code value. Present for `VALID` and `TRANSFER_PENDING`. */
+  qrCode?: string
+  scannedAt?: string
+}
+
+export interface AttendeeTicketOrder {
+  id: string
+  ticketId: string
+  ticketName: string
+  event: AttendeeTicketEvent
+  /** The admissions on this order the email holds. */
+  tickets: AttendeeTicket[]
+  createdAt: string
+}
+
+export interface AttendeeTicketOrderList {
+  items: AttendeeTicketOrder[]
+  /** Pass as `cursor` to fetch the next page. Absent on the last page. */
+  nextCursor?: string
 }
 
 // ---------------------------------------------------------------------------

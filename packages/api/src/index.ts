@@ -5,7 +5,12 @@
  * Works in browsers and Node.js 20+ using the platform `fetch`.
  */
 
-export { createClient, DEFAULT_BASE_URL, DEVICE_ID_STORAGE_KEY } from './client'
+export {
+  createClient,
+  DEFAULT_BASE_URL,
+  DEVICE_ID_STORAGE_KEY,
+  PRIVATE_API_KEY_PREFIX,
+} from './client'
 export type {
   ApiResult,
   ConditionalRequestOptions,
@@ -26,6 +31,11 @@ export { ApiError } from './errors'
 export type { ApiErrorBody } from './errors'
 
 export type {
+  AttendeeTicket,
+  AttendeeTicketEvent,
+  AttendeeTicketOrder,
+  AttendeeTicketOrderList,
+  AttendeeTicketStatus,
   Country,
   CreateOrderRequest,
   CreateReservationRequest,
@@ -44,6 +54,7 @@ export type {
   Host,
   JoinSaleWaitlistRequest,
   JoinSaleWaitlistResult,
+  LookupAttendeeTicketsRequest,
   Moment,
   MomentAuthor,
   MomentList,
