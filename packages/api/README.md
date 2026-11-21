@@ -172,12 +172,14 @@ const { data } = await fluidPrivate.lookupAttendeeTickets({
 for (const order of data.items) {
   for (const ticket of order.tickets) {
     // ticket.qrCode is only set for VALID tickets
+    // ticket.unlocksAt is set for LOCKED tickets
   }
 }
 ```
 
-Tickets for events that only admit the Jetron Ticket app come back `LOCKED` without a
-`qrCode`. Refunded orders and invalidated tickets are left out, and tickets follow
+Some events hold back QR codes until shortly before the ticket's date. Until then the
+ticket comes back `LOCKED`, without a `qrCode`, and `unlocksAt` says when the code becomes
+available. Fetch the tickets again after that time to get it. Refunded orders and invalidated tickets are left out, and tickets follow
 transfers. Pass `data.nextCursor` as `cursor` for the next page. Don't cache the
 response: scans change ticket status live.
 

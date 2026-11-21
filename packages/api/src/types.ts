@@ -40,7 +40,7 @@ export type SalePhase = 'UPCOMING' | 'ACTIVE' | 'ENDED'
 
 /**
  * `VALID` can be scanned. `USED` has been scanned. `TRANSFER_PENDING` cannot be scanned
- * while a transfer awaits the recipient. `LOCKED` is only shown in the Jetron Ticket app.
+ * while a transfer awaits the recipient. `LOCKED` has a QR code that is held back until `unlocksAt`.
  */
 export type AttendeeTicketStatus = 'VALID' | 'USED' | 'TRANSFER_PENDING' | 'LOCKED'
 
@@ -471,6 +471,8 @@ export interface AttendeeTicket {
   status: AttendeeTicketStatus
   /** The entry QR code value. Present only for `VALID` tickets. */
   qrCode?: string
+  /** When a `LOCKED` ticket's QR code becomes available. Present only for `LOCKED` tickets. */
+  unlocksAt?: string
   scannedAt?: string
 }
 

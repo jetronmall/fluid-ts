@@ -743,7 +743,10 @@ paths:
 
         `qrCode` is the value to render as the entry QR code. It is only present
         for `VALID` tickets. A `TRANSFER_PENDING` ticket cannot be scanned until
-        the recipient accepts or the transfer is cancelled. Responses are sent
+        the recipient accepts or the transfer is cancelled. Some events hold back
+        QR codes until shortly before the ticket's date: until then the ticket is
+        `LOCKED`, and `unlocksAt` says when its QR code becomes available. Fetch
+        the ticket again after that time to get it. Responses are sent
         with `Cache-Control: no-store`; do not cache them, because scans change
         ticket status live.
       security:
@@ -1898,10 +1901,14 @@ components:
           description: |
             `VALID` can be scanned. `USED` has been scanned. `TRANSFER_PENDING`
             cannot be scanned while a transfer awaits the recipient. `LOCKED`
-            is only shown in the Jetron Ticket app.
+            has a QR code that is held back until `unlocksAt`.
         qrCode:
           type: string
           description: The entry QR code value. Present only for `VALID` tickets.
+        unlocksAt:
+          type: string
+          format: date-time
+          description: When a `LOCKED` ticket's QR code becomes available. Present only for `LOCKED` tickets.
         scannedAt:
           type: string
           format: date-time
