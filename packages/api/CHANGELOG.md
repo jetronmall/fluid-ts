@@ -1,5 +1,12 @@
 # @jetronticket/api
 
+## 0.4.0
+
+### Minor Changes
+
+- d28f125: Add add-ons. `listAddons` lists the add-ons on sale for an event, and `createReservation` takes `addons` next to tickets or on their own with `buyerEmail`, so `items` is now optional in `CreateReservationRequest`. Tickets list their `includedAddons`, reservations and orders list the `addons` bought, and tickets from `lookupAttendeeTickets` list the `addons` that came with them. `lookupAttendeeAddons` returns the add-ons an email bought, with their QR codes. It needs your private key and runs on your server only. `HealthChecks` now includes `ai`.
+- dbcaace: Add `lookupAttendeeTickets`, which returns the tickets an email holds for your events so attendees can see their QR codes in your own app. It needs your private key and runs on your server only. `createClient` now throws when given a private key in a browser.
+
 ## 0.3.0
 
 ### Minor Changes
