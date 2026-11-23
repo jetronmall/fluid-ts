@@ -44,6 +44,14 @@ export type SalePhase = 'UPCOMING' | 'ACTIVE' | 'ENDED'
  */
 export type AttendeeTicketStatus = 'VALID' | 'USED' | 'TRANSFER_PENDING' | 'LOCKED'
 
+export type AddonStatus = 'AVAILABLE' | 'SOLD_OUT'
+
+/**
+ * `SCAN` add-ons are collected with their QR codes. `INSTRUCTIONS` add-ons have no codes;
+ * show the buyer `instructions` instead.
+ */
+export type AddonFulfillment = 'SCAN' | 'INSTRUCTIONS'
+
 export type EventArtistPlatform = 'SPOTIFY' | 'DEEZER'
 
 // ---------------------------------------------------------------------------
@@ -244,6 +252,60 @@ export interface Ticket {
   emailDomainRestriction?: string
   /** Open and upcoming sales that include this ticket. Empty when no sale is needed. */
   sales: TicketSale[]
+  /** Add-ons that come with this ticket at no extra cost. */
+  includedAddons: IncludedAddon[]
+}
+
+// ---------------------------------------------------------------------------
+// Add-ons
+// ---------------------------------------------------------------------------
+
+/** An add-on that comes with a ticket, as listed on the ticket. */
+export interface IncludedAddon {
+  id: string
+  name: string
+  description?: string
+  imageURL?: string
+  /** How many each admission gets. */
+  quantity: number
+}
+
+/** An add-on on sale for an event, such as parking, merch or priority access. */
+export interface Addon {
+  id: string
+  name: string
+  description?: string
+  imageURL?: string
+  /** Price the buyer pays (after commission), in the smallest currency unit. */
+  price: number
+  /** Human-readable, country-formatted price ("FREE" when 0). */
+  formattedPrice: string
+  /** Platform fees included for this add-on, in the smallest currency unit. */
+  fees: number
+  formattedFees: string
+  /** What the add-on is worth, for example a voucher's face value. */
+  value?: number
+  formattedValue?: string
+  /** Maximum quantity per order. Free add-ons bought on their own are limited to this per email. */
+  maxPerOrder: number
+  /**
+   * Units available to buy right now, after subtracting those held in other attendees'
+   * carts. Absent when the add-on has no stock limit.
+   */
+  quantityLeft?: number
+  /** When sales for this add-on close. */
+  deadline?: string
+  status: AddonStatus
+  /**
+   * The buyer needs one of these tickets in the cart, or already held when buying add-ons
+   * alone. Empty when anyone can buy the add-on.
+   */
+  ticketIds: string[]
+  position: number
+}
+
+export interface AddonList {
+  items: Addon[]
 }
 
 // ---------------------------------------------------------------------------
@@ -334,8 +396,24 @@ export interface ReservationItemRequest {
   quantity: number
 }
 
+export interface ReservationAddonRequest {
+  /** The add-on ID (from the add-ons endpoint). */
+  addonId: string
+  /** 1-100, and at most the add-on's `maxPerOrder`. */
+  quantity: number
+}
+
+/** Send `items`, `addons` or both. */
 export interface CreateReservationRequest {
-  items: ReservationItemRequest[]
+  /** The tickets to buy. Optional when `addons` is sent. */
+  items?: ReservationItemRequest[]
+  /** Add-ons to buy (at most 20). List each add-on once. */
+  addons?: ReservationAddonRequest[]
+  /**
+   * Required when `addons` is sent without `items`, and ignored otherwise. The add-ons are
+   * delivered to this email, whichever email pays for the order.
+   */
+  buyerEmail?: string
   /** Optional event promo code. Global promo codes are not supported. */
   promoCode?: string
   /** The sale to buy from. When omitted, the open sale is used for tickets that need one. */
@@ -353,6 +431,15 @@ export interface ReservationItemView {
   fee: number
 }
 
+export interface ReservationAddonView {
+  addonId: string
+  quantity: number
+  /** Per-unit price before `fee`, in the smallest currency unit. */
+  price: number
+  /** Per-unit platform fee the buyer pays, in the smallest currency unit. */
+  fee: number
+}
+
 export interface Reservation {
   /** The attendee's device ID, sent as `X-Device-ID`. Pass it as `deviceId` on later calls. */
   reservationToken: string
@@ -366,6 +453,8 @@ export interface Reservation {
   discount?: number
   promoCode?: string
   items: ReservationItemView[]
+  /** The add-ons being bought. Add-ons included with tickets are not listed. */
+  addons: ReservationAddonView[]
   /** Client-facing deadline to drive your checkout countdown. */
   clientExpiresAt: string
 }
@@ -382,7 +471,10 @@ export interface ReleaseResult {
 export interface CreateOrderRequest {
   /** The `quoteReference` returned by the reservation response. */
   quoteReference: string
-  /** The attendee's email; tickets are issued to this address. */
+  /**
+   * The attendee's email; tickets and the add-ons bought with them are issued to this
+   * address. Add-ons bought on their own go to the reservation's `buyerEmail`.
+   */
   email: string
   firstName: string
   lastName: string
@@ -390,7 +482,10 @@ export interface CreateOrderRequest {
   /** Where the attendee is redirected after payment (a `reference` is appended). */
   callbackUrl: string
   acceptPromotionalContent?: boolean
-  /** Optional JSON object (max 4096 bytes) echoed in the TICKET_PURCHASED webhook. */
+  /**
+   * Optional JSON object (max 4096 bytes) echoed in the TICKET_PURCHASED or
+   * ADDON_PURCHASED webhook.
+   */
   metadata?: Record<string, unknown>
 }
 
@@ -419,6 +514,17 @@ export interface OrderLine {
   formattedAmount: string
 }
 
+export interface OrderAddonLine {
+  addonId: string
+  name: string
+  quantity: number
+  /** Total paid for this add-on, in the smallest currency unit. */
+  amount: number
+  formattedAmount: string
+  /** An add-on can be refunded on its own while the order stays `confirmed`. */
+  status: OrderDetailsStatus
+}
+
 /** A confirmed order, returned by `GET /events/{slug}/orders/{reference}`. */
 export interface OrderDetails {
   reference: string
@@ -429,7 +535,10 @@ export interface OrderDetails {
   /** Discount from a promo code, if one was used. */
   discount?: number
   promoCode?: string
+  /** The tickets bought. Empty when only add-ons were bought. */
   items: OrderLine[]
+  /** The add-ons bought. Add-ons included with tickets are not listed. */
+  addons: OrderAddonLine[]
   createdAt: string
 }
 
@@ -474,6 +583,11 @@ export interface AttendeeTicket {
   /** When a `LOCKED` ticket's QR code becomes available. Present only for `LOCKED` tickets. */
   unlocksAt?: string
   scannedAt?: string
+  /**
+   * The add-ons that came with this ticket. Their `codes` are empty while the ticket is
+   * `LOCKED` or `TRANSFER_PENDING`.
+   */
+  addons: AttendeeAddon[]
 }
 
 export interface AttendeeTicketOrder {
@@ -493,6 +607,55 @@ export interface AttendeeTicketOrderList {
 }
 
 // ---------------------------------------------------------------------------
+// Attendee add-ons
+// ---------------------------------------------------------------------------
+
+export interface AttendeeAddonCode {
+  id: string
+  /** The value to render as a QR code. It collects one unit. */
+  code: string
+  /** When the unit was collected. Absent until then. */
+  redeemedAt?: string
+}
+
+/** An add-on an attendee has, either with a ticket or bought. */
+export interface AttendeeAddon {
+  id: string
+  addonId: string
+  name: string
+  imageURL?: string
+  fulfillment: AddonFulfillment
+  instructions?: string
+  quantity: number
+  redeemedQuantity: number
+  /** One code per unit. Empty for `INSTRUCTIONS` add-ons. */
+  codes: AttendeeAddonCode[]
+}
+
+export interface LookupAttendeeAddonsRequest {
+  /** The attendee's email. Matching ignores case and surrounding spaces. */
+  email: string
+  /** Only return add-ons for this event. An unknown slug throws a 404 `ApiError`. */
+  eventSlug?: string
+  /** Page size (1-100). Defaults to 20 server-side. */
+  limit?: number
+  /** The `nextCursor` from the previous page. */
+  cursor?: string
+}
+
+/** An add-on an attendee bought. */
+export interface AttendeeAddonPurchase extends AttendeeAddon {
+  event: AttendeeTicketEvent
+  createdAt: string
+}
+
+export interface AttendeeAddonPurchaseList {
+  items: AttendeeAddonPurchase[]
+  /** Pass as `cursor` to fetch the next page. Absent on the last page. */
+  nextCursor?: string
+}
+
+// ---------------------------------------------------------------------------
 // System
 // ---------------------------------------------------------------------------
 
@@ -503,10 +666,11 @@ export interface HealthChecks {
   rabbitmq: boolean
   neo4j: boolean
   mongodb: boolean
+  ai: boolean
 }
 
 export interface Health {
-  /** Overall readiness (Postgres AND Redis reachable). */
+  /** Overall readiness (Postgres, Redis and MongoDB reachable). */
   status: boolean
   message: string
   data: HealthChecks
