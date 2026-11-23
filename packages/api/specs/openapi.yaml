@@ -22,8 +22,8 @@ info:
     5. `DELETE /events/{slug}/reservations` releases a hold early (also echo the
        token as `X-Device-ID`). Holds otherwise expire on their own.
 
-    Reserved-seating (seats.io) events are not supported over this API yet and
-    return `400`. Events with a waiting room return `403` from reservations.
+    Tickets to reserved-seating (seats.io) events are not supported over this
+    API yet and return `400`. Events with a waiting room return `403` from reservations.
     Reservations and orders are not cached.
 
     ## Sales
@@ -36,6 +36,32 @@ info:
     waitlist with `POST /events/{slug}/sales/{saleId}/waitlist` to be emailed
     when it opens.
 
+    ## Add-ons
+    Events can sell add-ons such as parking, merch or priority access.
+    `GET /events/{slug}/addons` lists the ones on sale. Add-ons that come with a
+    ticket are listed on that ticket as `includedAddons` and need no action from
+    the buyer.
+
+    To sell add-ons, send `addons` with the reservation, next to `items` or on
+    their own. A reservation with only add-ons needs `buyerEmail`: the add-ons
+    are delivered to it. The buyer needs no ticket, unless the add-on has
+    `ticketIds`: then one of those tickets must be in the cart, or already be
+    held by `buyerEmail` when the add-ons are bought on their own. Promo codes
+    discount tickets only and cannot be sent with add-ons alone.
+
+    Every add-on that is scanned has one QR code per unit. Attendees find theirs
+    in the confirmation email. To show them in your own app, use `addons` on
+    each ticket from `POST /attendees/tickets/lookup` for included add-ons, and
+    `POST /attendees/addons/lookup` for bought ones.
+
+    ## Webhooks
+    `TICKET_PURCHASED` lists the add-ons bought with tickets in `data.addons`.
+    When add-ons are bought on their own, the same webhook URLs receive
+    `ADDON_PURCHASED` instead, with `eventId`, `reference`, `amount`,
+    `formattedAmount`, `paidAt`, `sentAt`, `addons` and `metadata` in `data`.
+    Each add-on has `addonId`, `name`, `quantity`, `amount`, `formattedAmount`
+    and `customer`. Check `eventType` before reading `data`.
+
     ## Host and event content
     `GET /host` returns the profile of the host that owns the API key, for your
     site header. Each event also has its lineup (`headliners` on the event),
@@ -43,7 +69,7 @@ info:
     post from the event (`GET /events/{slug}/moments`).
 
     ## Calling from a browser or a server
-    Every endpoint except the attendee ticket lookup takes the public key, so
+    Every endpoint except the attendee lookups takes the public key, so
     you can call it from browser code or from your own server. Event, ticket and sale reads are the same for
     every visitor, so they suit server rendering and caching. Reservation,
     order, password and waitlist calls act for one attendee: from a server,
@@ -56,9 +82,10 @@ info:
 
     All events are automatically scoped to the event host that owns the API key.
 
-    ## Attendee tickets
+    ## Attendee tickets and add-ons
     `POST /attendees/tickets/lookup` returns the tickets an email holds for your
-    events, so attendees can see their QR codes in your own app. It takes your
+    events, and `POST /attendees/addons/lookup` the add-ons it bought, so
+    attendees can see their QR codes in your own app. Both take your
     private key (`jt_private_...`) and must only be called from your server,
     after your app has verified that the signed-in user owns the email. The
     public key gets `403`.
@@ -97,9 +124,9 @@ tags:
   - name: Sales
     description: Timed sales, sale passwords and waitlists
   - name: Checkout
-    description: Reserve tickets and create orders for your attendees
+    description: Reserve tickets and add-ons and create orders for your attendees
   - name: Attendees
-    description: Tickets your attendees hold, for server-side use with the private key
+    description: Tickets and add-ons your attendees hold, for server-side use with the private key
   - name: System
     description: Health and service metadata
 
@@ -109,19 +136,14 @@ paths:
       tags: [System]
       summary: Health check
       description: |
-        Readiness probe. Postgres and Redis are hard dependencies — the service
-        reports `503` if either is unreachable. Meilisearch, RabbitMQ, Neo4j and
-        MongoDB are reported for observability but do not affect the status code.
+        Always returns `200`. Read `status` to tell whether the service is ready:
+        it is `false` when Postgres, Redis or MongoDB is unreachable. Meilisearch,
+        RabbitMQ, Neo4j and AI are reported for observability but do not affect
+        `status`.
       security: []
       responses:
         '200':
-          description: Service is ready
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HealthEnvelope'
-        '503':
-          description: A hard dependency (Postgres or Redis) is unavailable
+          description: The readiness of the service and each dependency
           content:
             application/json:
               schema:
@@ -396,6 +418,40 @@ paths:
         '429':
           $ref: '#/components/responses/TooManyRequests'
 
+  /events/{slug}/addons:
+    get:
+      tags: [Events]
+      summary: List an event's add-ons
+      description: |
+        Lists the add-ons on sale for an event, ordered by their display
+        position. Add-ons whose `deadline` has passed and add-ons that only come
+        with a ticket are left out; the latter are on the ticket as
+        `includedAddons`. Send `X-Device-ID` so the attendee's own reservation
+        is not counted against `quantityLeft`.
+      parameters:
+        - $ref: '#/components/parameters/EventSlug'
+        - $ref: '#/components/parameters/DeviceIdAddons'
+      responses:
+        '200':
+          description: The event's add-ons
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, data]
+                properties:
+                  status:
+                    type: boolean
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/AddonList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
   /events/{slug}/sales:
     get:
       tags: [Sales]
@@ -565,8 +621,13 @@ paths:
         `X-Device-ID` again to refresh the attendee's reservation. A promo code
         must belong to the event in `{slug}`; global promo codes are not
         supported. To buy tickets from a sale, send `saleId`, and
-        `salePassword` when the sale has one. Reserved-seating events return
-        `400`. Events with a waiting room return `403`.
+        `salePassword` when the sale has one. Tickets to reserved-seating events
+        return `400`. Events with a waiting room return `403`.
+
+        Send `addons` to sell add-ons with the tickets, or on their own with
+        `buyerEmail`. Reservations without tickets are limited to 30 a minute per
+        client IP when an add-on is free or limited to certain tickets, because
+        they check what `buyerEmail` holds or has claimed.
       parameters:
         - $ref: '#/components/parameters/EventSlug'
         - $ref: '#/components/parameters/DeviceIdOptional'
@@ -604,7 +665,7 @@ paths:
       tags: [Checkout]
       summary: Release a reservation
       description: |
-        Releases a held reservation, freeing the stock. Echo the
+        Releases a held reservation, freeing the tickets and add-ons. Echo the
         `reservationToken` as the `X-Device-ID` header. If omitted, the server
         falls back to the reservation held for your client IP + event (the same
         fallback used when reserving without a token). Returns `400` if neither
@@ -653,8 +714,8 @@ paths:
         return the order's `reference`. After payment the attendee is redirected
         to your `callbackUrl` with `reference` in the query string. The redirect
         alone does not prove payment: confirm it with
-        `GET /events/{slug}/orders/{reference}` or the `TICKET_PURCHASED`
-        webhook. A duplicate order for the same reservation returns `409`.
+        `GET /events/{slug}/orders/{reference}` or the `TICKET_PURCHASED` or
+        `ADDON_PURCHASED` webhook. A duplicate order for the same reservation returns `409`.
       parameters:
         - $ref: '#/components/parameters/EventSlug'
         - $ref: '#/components/parameters/DeviceIdRequired'
@@ -694,13 +755,14 @@ paths:
       tags: [Checkout]
       summary: Get an order
       description: |
-        Returns an order once payment is confirmed and its tickets are issued.
+        Returns an order once payment is confirmed and its tickets and add-ons
+        are issued. `items` is empty when only add-ons were bought.
         Use it on your `callbackUrl` page, with the `reference` from the query
         string. Until the order exists it returns `404`: payment confirmation
         usually takes a few seconds, so retry every couple of seconds for up to
         a minute before telling the attendee to check their email. An unpaid or
         abandoned payment also returns `404`. Buyer details are not returned;
-        the `TICKET_PURCHASED` webhook carries them.
+        the `TICKET_PURCHASED` and `ADDON_PURCHASED` webhooks carry them.
       parameters:
         - $ref: '#/components/parameters/EventSlug'
         - name: reference
@@ -748,7 +810,9 @@ paths:
         Ticket Release Time before each ticket's date (7 days unless the
         organizer changes it). Until then the ticket is `LOCKED`, and
         `unlocksAt` says when its QR code becomes available. Fetch the ticket
-        again after that time to get it. Responses are sent
+        again after that time to get it. Each ticket's `addons` are the add-ons
+        that came with it; their codes are left out while the ticket is `LOCKED`
+        or `TRANSFER_PENDING`. Responses are sent
         with `Cache-Control: no-store`; do not cache them, because scans change
         ticket status live.
       security:
@@ -773,6 +837,51 @@ paths:
                     const: true
                   data:
                     $ref: '#/components/schemas/AttendeeTicketOrderList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /attendees/addons/lookup:
+    post:
+      tags: [Attendees]
+      summary: Look up the add-ons an attendee bought
+      description: |
+        Returns the add-ons an email bought for your events, newest first.
+        Refunded and cancelled add-ons are left out. Add-ons that came with a
+        ticket are not here: they are on the ticket in
+        `POST /attendees/tickets/lookup`. Requires the private key; call it from
+        your server only, after verifying the attendee owns the email. Responses
+        are sent with `Cache-Control: no-store`; do not cache them, because
+        scans change codes live.
+      security:
+        - PrivateApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LookupAttendeeAddonsRequest'
+      responses:
+        '200':
+          description: The add-ons the attendee bought
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, data]
+                properties:
+                  status:
+                    type: boolean
+                    const: true
+                  data:
+                    $ref: '#/components/schemas/AttendeeAddonPurchaseList'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -872,6 +981,14 @@ components:
         every attendee behind the same IP shares one reservation. When you call
         from your own server, every attendee shares your server's IP, so always
         send a separate token per attendee.
+      schema:
+        type: string
+        format: uuid
+    DeviceIdAddons:
+      name: X-Device-ID
+      in: header
+      required: false
+      description: The attendee's `reservationToken`, if they already have a reservation.
       schema:
         type: string
         format: uuid
@@ -992,14 +1109,14 @@ components:
       properties:
         status:
           type: boolean
-          description: Whether the HTTP status code was < 400.
+          description: Overall readiness (Postgres, Redis and MongoDB reachable).
         data:
           type: object
           required: [status, message, data]
           properties:
             status:
               type: boolean
-              description: Overall readiness (Postgres AND Redis reachable).
+              description: Overall readiness (Postgres, Redis and MongoDB reachable).
             message:
               type: string
               example: OK
@@ -1008,11 +1125,11 @@ components:
 
     HealthChecks:
       type: object
-      required: [postgres, redis, meilisearch, rabbitmq, neo4j, mongodb]
+      required: [postgres, redis, meilisearch, rabbitmq, neo4j, mongodb, ai]
       description: |
-        Per-dependency health. For the headless API `postgres` and `redis`
-        determine the status code; `meilisearch`, `rabbitmq`, `neo4j` and
-        `mongodb` are informational.
+        Per-dependency health. For the headless API `postgres`, `redis` and
+        `mongodb` determine `status`; `meilisearch`, `rabbitmq`, `neo4j` and `ai`
+        are informational.
       properties:
         postgres:
           type: boolean
@@ -1025,6 +1142,8 @@ components:
         neo4j:
           type: boolean
         mongodb:
+          type: boolean
+        ai:
           type: boolean
 
     EventCategory:
@@ -1241,6 +1360,7 @@ components:
         - isRsvp
         - position
         - sales
+        - includedAddons
       properties:
         id:
           type: string
@@ -1311,6 +1431,105 @@ components:
             can buy it without a sale.
           items:
             $ref: '#/components/schemas/TicketSale'
+        includedAddons:
+          type: array
+          description: Add-ons that come with this ticket at no extra cost.
+          items:
+            $ref: '#/components/schemas/IncludedAddon'
+
+    IncludedAddon:
+      type: object
+      required: [id, name, quantity]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        imageURL:
+          type: string
+        quantity:
+          type: integer
+          description: How many each admission gets.
+
+    Addon:
+      type: object
+      required:
+        - id
+        - name
+        - price
+        - formattedPrice
+        - fees
+        - formattedFees
+        - maxPerOrder
+        - status
+        - ticketIds
+        - position
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        imageURL:
+          type: string
+        price:
+          type: integer
+          description: Price the buyer pays (after commission), in the smallest currency unit.
+        formattedPrice:
+          type: string
+          description: Human-readable, country-formatted price ("FREE" when 0).
+        fees:
+          type: integer
+          description: Platform fees included for this add-on, in the smallest currency unit.
+        formattedFees:
+          type: string
+          description: Human-readable, country-formatted fees.
+        value:
+          type: integer
+          description: What the add-on is worth, for example a voucher's face value.
+        formattedValue:
+          type: string
+        maxPerOrder:
+          type: integer
+          description: |
+            Maximum quantity per order. Free add-ons bought on their own are
+            limited to this per email.
+        quantityLeft:
+          type: integer
+          description: |
+            Units available to buy right now, after subtracting those held in
+            other attendees' carts. Absent when the add-on has no stock limit.
+        deadline:
+          type: string
+          format: date-time
+          description: When sales for this add-on close.
+        status:
+          type: string
+          enum: [AVAILABLE, SOLD_OUT]
+        ticketIds:
+          type: array
+          description: |
+            The buyer needs one of these tickets in the cart, or already held
+            when buying add-ons alone. Empty when anyone can buy the add-on.
+          items:
+            type: string
+            format: uuid
+        position:
+          type: integer
+
+    AddonList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Addon'
 
     SalePhase:
       type: string
@@ -1460,15 +1679,41 @@ components:
           type: integer
           minimum: 1
 
+    ReservationAddonRequest:
+      type: object
+      required: [addonId, quantity]
+      properties:
+        addonId:
+          type: string
+          format: uuid
+          description: The add-on ID (from the add-ons endpoint).
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 100
+
     CreateReservationRequest:
       type: object
-      required: [items]
+      description: Send `items`, `addons` or both.
       properties:
         items:
           type: array
-          minItems: 1
           items:
             $ref: '#/components/schemas/ReservationItemRequest'
+        addons:
+          type: array
+          maxItems: 20
+          description: Add-ons to buy. List each add-on once.
+          items:
+            $ref: '#/components/schemas/ReservationAddonRequest'
+        buyerEmail:
+          type: string
+          format: email
+          maxLength: 255
+          description: |
+            Required when `addons` is sent without `items`, and ignored
+            otherwise. The add-ons are delivered to this email, whichever email
+            pays for the order.
         promoCode:
           type: string
           description: Optional promo code to apply to the cart. It must belong to this event; global promo codes are not supported.
@@ -1498,6 +1743,22 @@ components:
           type: integer
           description: Per-ticket platform fee, in the smallest currency unit.
 
+    ReservationAddonView:
+      type: object
+      required: [addonId, quantity, price, fee]
+      properties:
+        addonId:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+        price:
+          type: integer
+          description: Per-unit price, in the smallest currency unit.
+        fee:
+          type: integer
+          description: Per-unit platform fee, in the smallest currency unit.
+
     Reservation:
       type: object
       required:
@@ -1506,6 +1767,7 @@ components:
         - total
         - totalFees
         - items
+        - addons
         - clientExpiresAt
       properties:
         reservationToken:
@@ -1532,6 +1794,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ReservationItemView'
+        addons:
+          type: array
+          description: The add-ons being bought. Add-ons included with tickets are not listed.
+          items:
+            $ref: '#/components/schemas/ReservationAddonView'
         clientExpiresAt:
           type: string
           format: date-time
@@ -1547,7 +1814,10 @@ components:
         email:
           type: string
           format: email
-          description: The attendee's email; tickets are issued to this address.
+          description: |
+            The attendee's email; tickets and the add-ons bought with them are
+            issued to this address. Add-ons bought on their own go to the
+            reservation's `buyerEmail`.
         firstName:
           type: string
         lastName:
@@ -1568,8 +1838,8 @@ components:
           additionalProperties: true
           description: |
             Optional JSON object (max 4096 bytes) echoed back verbatim in the
-            `TICKET_PURCHASED` webhook's `data.metadata` on payment success — e.g.
-            custom checkout-form fields. Must be a JSON object, not a scalar or
+            `TICKET_PURCHASED` or `ADDON_PURCHASED` webhook's `data.metadata` on
+            payment success, e.g. custom checkout-form fields. Must be a JSON object, not a scalar or
             array.
 
     Order:
@@ -1770,9 +2040,30 @@ components:
         formattedAmount:
           type: string
 
+    OrderAddonLine:
+      type: object
+      required: [addonId, name, quantity, amount, formattedAmount, status]
+      properties:
+        addonId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        quantity:
+          type: integer
+        amount:
+          type: integer
+          description: Total paid for this add-on, in the smallest currency unit.
+        formattedAmount:
+          type: string
+        status:
+          type: string
+          enum: [confirmed, refunded]
+          description: An add-on can be refunded on its own while the order stays `confirmed`.
+
     OrderDetails:
       type: object
-      required: [reference, status, total, formattedTotal, items, createdAt]
+      required: [reference, status, total, formattedTotal, items, addons, createdAt]
       properties:
         reference:
           type: string
@@ -1796,6 +2087,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/OrderLine'
+        addons:
+          type: array
+          description: The add-ons bought. Add-ons included with tickets are not listed.
+          items:
+            $ref: '#/components/schemas/OrderAddonLine'
         createdAt:
           type: string
           format: date-time
@@ -1885,7 +2181,7 @@ components:
 
     AttendeeTicket:
       type: object
-      required: [id, name, status]
+      required: [id, name, status, addons]
       properties:
         id:
           type: string
@@ -1914,6 +2210,103 @@ components:
         scannedAt:
           type: string
           format: date-time
+        addons:
+          type: array
+          description: The add-ons that came with this ticket.
+          items:
+            $ref: '#/components/schemas/AttendeeAddon'
+
+    AttendeeAddonCode:
+      type: object
+      required: [id, code]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          description: The value to render as a QR code. It collects one unit.
+        redeemedAt:
+          type: string
+          format: date-time
+          description: When the unit was collected. Absent until then.
+
+    AttendeeAddon:
+      type: object
+      required: [id, addonId, name, fulfillment, quantity, redeemedQuantity, codes]
+      properties:
+        id:
+          type: string
+          format: uuid
+        addonId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        imageURL:
+          type: string
+        fulfillment:
+          type: string
+          enum: [SCAN, INSTRUCTIONS]
+          description: |
+            `SCAN` add-ons are collected with their QR codes. `INSTRUCTIONS`
+            add-ons have no codes; follow `instructions`.
+        instructions:
+          type: string
+        quantity:
+          type: integer
+        redeemedQuantity:
+          type: integer
+        codes:
+          type: array
+          description: One code per unit. Empty for `INSTRUCTIONS` add-ons.
+          items:
+            $ref: '#/components/schemas/AttendeeAddonCode'
+
+    LookupAttendeeAddonsRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          description: The attendee's email. Matching ignores case and surrounding spaces.
+        eventSlug:
+          type: string
+          description: Only return add-ons for this event. Unknown slugs return `404`.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+        cursor:
+          type: string
+          description: The `nextCursor` from the previous page.
+
+    AttendeeAddonPurchase:
+      allOf:
+        - $ref: '#/components/schemas/AttendeeAddon'
+        - type: object
+          required: [event, createdAt]
+          properties:
+            event:
+              $ref: '#/components/schemas/AttendeeTicketEvent'
+            createdAt:
+              type: string
+              format: date-time
+
+    AttendeeAddonPurchaseList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendeeAddonPurchase'
+        nextCursor:
+          type: string
+          description: Pass as `cursor` to fetch the next page. Absent on the last page.
 
 security:
   - ApiKeyAuth: []

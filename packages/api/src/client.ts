@@ -1,5 +1,7 @@
 import { ApiError } from './errors'
 import type {
+  AddonList,
+  AttendeeAddonPurchaseList,
   AttendeeTicketOrderList,
   CreateOrderRequest,
   CreateReservationRequest,
@@ -10,6 +12,7 @@ import type {
   Host,
   JoinSaleWaitlistRequest,
   JoinSaleWaitlistResult,
+  LookupAttendeeAddonsRequest,
   LookupAttendeeTicketsRequest,
   MomentList,
   Order,
@@ -60,8 +63,8 @@ export type DeviceIdMode = 'browser' | 'per-reservation'
 export interface JetronFluidClientOptions {
   /**
    * Your API key, sent as a Bearer token. Use the public key (`jt_public_...`) for every
-   * method except `lookupAttendeeTickets`, which needs the private key (`jt_private_...`)
-   * and only runs on a server.
+   * method except `lookupAttendeeTickets` and `lookupAttendeeAddons`, which need the
+   * private key (`jt_private_...`) and only run on a server.
    */
   apiKey: string
   /**
@@ -119,6 +122,15 @@ export interface ListMomentsParams extends ConditionalRequestOptions {
 export interface ListTicketsOptions extends RequestOptions {
   /** Report ticket statuses for this sale only. */
   saleId?: string
+}
+
+export interface ListAddonsOptions extends RequestOptions {
+  /**
+   * The attendee's `reservationToken`, sent as `X-Device-ID`, so add-ons their reservation
+   * already holds still count as available to them. Filled in automatically in
+   * `'browser'` mode.
+   */
+  deviceId?: string
 }
 
 export interface ValidatePromoCodeOptions extends RequestOptions {
@@ -228,6 +240,9 @@ export interface JetronFluidClient {
   /** `GET /events/{slug}/tickets` — list an event's purchasable ticket types. */
   listTickets(slug: string, options?: ListTicketsOptions): Promise<ApiResult<Ticket[]>>
 
+  /** `GET /events/{slug}/addons` — list the add-ons on sale for an event. */
+  listAddons(slug: string, options?: ListAddonsOptions): Promise<ApiResult<AddonList>>
+
   /** `GET /events/{slug}/sales` — list an event's sales, including ended ones. */
   listSales(slug: string, options?: RequestOptions): Promise<ApiResult<SaleList>>
 
@@ -273,7 +288,7 @@ export interface JetronFluidClient {
 
   /**
    * `GET /events/{slug}/orders/{reference}` — a confirmed order. Throws an `ApiError` with
-   * status 404 until payment is confirmed and tickets are issued.
+   * status 404 until payment is confirmed and tickets and add-ons are issued.
    */
   getOrder(
     slug: string,
@@ -290,6 +305,17 @@ export interface JetronFluidClient {
     body: LookupAttendeeTicketsRequest,
     options?: RequestOptions,
   ): Promise<ApiResult<AttendeeTicketOrderList>>
+
+  /**
+   * `POST /attendees/addons/lookup` — the add-ons an email bought for your events. Add-ons
+   * that came with a ticket are on the ticket in `lookupAttendeeTickets` instead. Needs a
+   * client created with your private key, on your server, after your app has verified that
+   * the signed-in user owns the email.
+   */
+  lookupAttendeeAddons(
+    body: LookupAttendeeAddonsRequest,
+    options?: RequestOptions,
+  ): Promise<ApiResult<AttendeeAddonPurchaseList>>
 }
 
 function buildQuery(query?: Query): string {
@@ -370,7 +396,7 @@ export function createClient(options: JetronFluidClientOptions): JetronFluidClie
   }
   if (apiKey.trim().startsWith(PRIVATE_API_KEY_PREFIX) && isBrowser()) {
     throw new Error(
-      'Your private API key must never be used in a browser. Call lookupAttendeeTickets from your server.',
+      'Your private API key must never be used in a browser. Call lookupAttendeeTickets and lookupAttendeeAddons from your server.',
     )
   }
   const baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '')
@@ -510,6 +536,14 @@ export function createClient(options: JetronFluidClientOptions): JetronFluidClie
       })
     },
 
+    listAddons: async (slug, opts = {}) => {
+      const { deviceId, ...rest } = opts
+      return request<AddonList>('GET', `/events/${encode(slug)}/addons`, {
+        deviceId: optionalDeviceId(deviceId ?? headerDeviceId(rest.headers)),
+        ...rest,
+      })
+    },
+
     listSales: (slug, opts = {}) => request<SaleList>('GET', `/events/${encode(slug)}/sales`, opts),
 
     verifySalePassword: (slug, saleId, body, opts = {}) =>
@@ -566,5 +600,8 @@ export function createClient(options: JetronFluidClientOptions): JetronFluidClie
 
     lookupAttendeeTickets: (body, opts = {}) =>
       request<AttendeeTicketOrderList>('POST', '/attendees/tickets/lookup', { body, ...opts }),
+
+    lookupAttendeeAddons: (body, opts = {}) =>
+      request<AttendeeAddonPurchaseList>('POST', '/attendees/addons/lookup', { body, ...opts }),
   }
 }

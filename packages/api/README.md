@@ -76,6 +76,7 @@ interface ApiResult<T> {
 | `listSponsors(slug, options?)`            | `GET /events/{slug}/sponsors`                        |
 | `listMoments(slug, params?)`              | `GET /events/{slug}/moments`                         |
 | `listTickets(slug, options?)`             | `GET /events/{slug}/tickets`                         |
+| `listAddons(slug, options?)`              | `GET /events/{slug}/addons`                          |
 | `listSales(slug, options?)`               | `GET /events/{slug}/sales`                           |
 | `verifySalePassword(slug, saleId, body)`  | `POST /events/{slug}/sales/{saleId}/verify-password` |
 | `joinSaleWaitlist(slug, saleId, body)`    | `POST /events/{slug}/sales/{saleId}/waitlist`        |
@@ -85,12 +86,13 @@ interface ApiResult<T> {
 | `createOrder(slug, body, options?)`       | `POST /events/{slug}/orders`                         |
 | `getOrder(slug, reference, options?)`     | `GET /events/{slug}/orders/{reference}`              |
 | `lookupAttendeeTickets(body, options?)`   | `POST /attendees/tickets/lookup` (private key)       |
+| `lookupAttendeeAddons(body, options?)`    | `POST /attendees/addons/lookup` (private key)        |
 
 ### Client options
 
 - `apiKey` (required) — your API key, sent as `Authorization: Bearer <key>`. Use the
-  public key for every method except `lookupAttendeeTickets`, which needs the private
-  key. `createClient` throws if it gets a private key in a browser.
+  public key for every method except `lookupAttendeeTickets` and `lookupAttendeeAddons`,
+  which need the private key. `createClient` throws if it gets a private key in a browser.
 - `fetch` — a custom fetch implementation (defaults to the global `fetch`).
 - `headers` — extra headers merged into every request.
 - `deviceIdMode` — how `X-Device-ID` is filled in on checkout calls (see below).
@@ -140,6 +142,37 @@ if (upcoming) {
 }
 ```
 
+### Add-ons
+
+Events can sell add-ons such as parking, merch or priority access. `listAddons` returns
+the ones on sale. Send them as `addons` with a reservation, next to tickets or on their
+own:
+
+```ts
+const { data: addons } = await client.listAddons('my-event')
+const parking = addons.items.find((addon) => addon.status === 'AVAILABLE')!
+
+// With tickets
+await client.createReservation('my-event', {
+  items: [{ sku: ticket.id, quantity: 2 }],
+  addons: [{ addonId: parking.id, quantity: 1 }],
+})
+
+// On their own: the add-ons are delivered to buyerEmail
+await client.createReservation('my-event', {
+  addons: [{ addonId: parking.id, quantity: 1 }],
+  buyerEmail: 'ada@example.com',
+})
+```
+
+Every reservation call replaces the cart, so send `items` and `addons` each time. Anyone
+can buy an add-on, unless its `ticketIds` lists tickets: then one of them must be in the
+cart, or already be held by `buyerEmail` when the add-ons are bought on their own. Promo
+codes discount tickets only and can't be sent with add-ons alone.
+
+Add-ons that come with a ticket are on `ticket.includedAddons`. The buyer gets them
+automatically, so don't send them in `addons`.
+
 ### Promo codes
 
 `validatePromoCode` checks a code before the attendee reserves, so you can show the
@@ -183,6 +216,25 @@ Until then the ticket comes back `LOCKED`, without a `qrCode`, and `unlocksAt` s
 the code becomes available. Fetch the tickets again after that time to get it. Refunded orders and invalidated tickets are left out, and tickets follow
 transfers. Pass `data.nextCursor` as `cursor` for the next page. Don't cache the
 response: scans change ticket status live.
+
+### Attendee add-ons
+
+Every add-on that is scanned has one QR code per unit. Add-ons that came with a ticket are
+in `addons` on each ticket from `lookupAttendeeTickets`. Add-ons the attendee bought come
+from `lookupAttendeeAddons`, which needs your private key and the same verified email:
+
+```ts
+const { data } = await fluidPrivate.lookupAttendeeAddons({ email: session.user.email })
+
+for (const addon of data.items) {
+  for (const { code, redeemedAt } of addon.codes) {
+    // render `code` as a QR code; redeemedAt is set once that unit is collected
+  }
+}
+```
+
+`INSTRUCTIONS` add-ons have no codes: show `addon.instructions`. Refunded and cancelled
+add-ons are left out. Don't cache the response: scans change codes live.
 
 ### Errors
 
