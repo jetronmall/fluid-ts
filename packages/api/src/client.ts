@@ -240,7 +240,7 @@ export interface JetronFluidClient {
   /** `GET /events/{slug}/tickets` — list an event's purchasable ticket types. */
   listTickets(slug: string, options?: ListTicketsOptions): Promise<ApiResult<Ticket[]>>
 
-  /** `GET /events/{slug}/addons` — list the add-ons on sale for an event. */
+  /** `GET /events/{slug}/addons` — list the add-ons an event sells, with their `status`. */
   listAddons(slug: string, options?: ListAddonsOptions): Promise<ApiResult<AddonList>>
 
   /** `GET /events/{slug}/sales` — list an event's sales, including ended ones. */

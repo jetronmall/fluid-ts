@@ -38,9 +38,9 @@ info:
 
     ## Add-ons
     Events can sell add-ons such as parking, merch or priority access.
-    `GET /events/{slug}/addons` lists the ones on sale. Add-ons that come with a
-    ticket are listed on that ticket as `includedAddons` and need no action from
-    the buyer.
+    `GET /events/{slug}/addons` lists them with their `status`. Add-ons that
+    come with a ticket are listed on that ticket as `includedAddons` and need no
+    action from the buyer.
 
     To sell add-ons, send `addons` with the reservation, next to `items` or on
     their own. A reservation with only add-ons needs `buyerEmail`: the add-ons
@@ -423,11 +423,11 @@ paths:
       tags: [Events]
       summary: List an event's add-ons
       description: |
-        Lists the add-ons on sale for an event, ordered by their display
-        position. Add-ons whose `deadline` has passed and add-ons that only come
-        with a ticket are left out; the latter are on the ticket as
-        `includedAddons`. Send `X-Device-ID` so the attendee's own reservation
-        is not counted against `quantityLeft`.
+        Lists the add-ons an event sells, ordered by their display position.
+        Check `status` before offering one: only `AVAILABLE` add-ons can be
+        bought. Add-ons that only come with a ticket are left out; they are on
+        the ticket as `includedAddons`. Send `X-Device-ID` so the attendee's own
+        reservation is not counted against `quantityLeft` or `status`.
       parameters:
         - $ref: '#/components/parameters/EventSlug'
         - $ref: '#/components/parameters/DeviceIdAddons'
@@ -1510,7 +1510,12 @@ components:
           description: When sales for this add-on close.
         status:
           type: string
-          enum: [AVAILABLE, SOLD_OUT]
+          enum: [AVAILABLE, SOLD_OUT, COMING_SOON, SALES_CLOSED]
+          description: |
+            Checked in this order, like tickets: `SOLD_OUT` when `quantityLeft`
+            is 0, `COMING_SOON` while the event is not on sale yet,
+            `SALES_CLOSED` once the event has closed or the add-on's `deadline`
+            has passed, otherwise `AVAILABLE`.
         ticketIds:
           type: array
           description: |
