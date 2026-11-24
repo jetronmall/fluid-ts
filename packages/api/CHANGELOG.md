@@ -1,5 +1,11 @@
 # @jetronticket/api
 
+## 0.5.0
+
+### Minor Changes
+
+- 147ff7b: `AddonStatus` gains `COMING_SOON` and `SALES_CLOSED`. `listAddons` now also returns add-ons whose sales have closed, so check that `status` is `AVAILABLE` before you offer one.
+
 ## 0.4.0
 
 ### Minor Changes
