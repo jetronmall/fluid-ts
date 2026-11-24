@@ -1,6 +1,6 @@
 {
   "name": "@jetronticket/api",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "TypeScript client for Jetron Fluid, the Jetron Ticket headless API.",
   "license": "MIT",
   "repository": {
