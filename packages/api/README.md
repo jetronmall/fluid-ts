@@ -145,8 +145,9 @@ if (upcoming) {
 ### Add-ons
 
 Events can sell add-ons such as parking, merch or priority access. `listAddons` returns
-the ones on sale. Send them as `addons` with a reservation, next to tickets or on their
-own:
+them with a `status`: `AVAILABLE`, `SOLD_OUT`, `COMING_SOON` or `SALES_CLOSED`. Only
+`AVAILABLE` add-ons can be bought. Send them as `addons` with a reservation, next to
+tickets or on their own:
 
 ```ts
 const { data: addons } = await client.listAddons('my-event')

@@ -44,7 +44,12 @@ export type SalePhase = 'UPCOMING' | 'ACTIVE' | 'ENDED'
  */
 export type AttendeeTicketStatus = 'VALID' | 'USED' | 'TRANSFER_PENDING' | 'LOCKED'
 
-export type AddonStatus = 'AVAILABLE' | 'SOLD_OUT'
+/**
+ * Only `AVAILABLE` add-ons can be bought. `SOLD_OUT` when `quantityLeft` is 0, `COMING_SOON`
+ * while the event is not on sale yet, `SALES_CLOSED` once the event has closed or the
+ * add-on's `deadline` has passed. `SOLD_OUT` comes first, then `COMING_SOON`.
+ */
+export type AddonStatus = 'AVAILABLE' | 'SOLD_OUT' | 'COMING_SOON' | 'SALES_CLOSED'
 
 /**
  * `SCAN` add-ons are collected with their QR codes. `INSTRUCTIONS` add-ons have no codes;
@@ -270,7 +275,7 @@ export interface IncludedAddon {
   quantity: number
 }
 
-/** An add-on on sale for an event, such as parking, merch or priority access. */
+/** An add-on an event sells, such as parking, merch or priority access. */
 export interface Addon {
   id: string
   name: string
@@ -295,6 +300,7 @@ export interface Addon {
   quantityLeft?: number
   /** When sales for this add-on close. */
   deadline?: string
+  /** Check this before offering the add-on: closed and sold-out add-ons are listed too. */
   status: AddonStatus
   /**
    * The buyer needs one of these tickets in the cart, or already held when buying add-ons
